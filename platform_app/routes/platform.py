@@ -6,7 +6,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from platform_app.auth import APIPrincipal
+from platform_app.auth import APIPrincipal, require_scopes
 from platform_app.deps import (
     get_auth_dependency,
     get_llm_adapter,
@@ -25,6 +25,7 @@ def platform_chat(
     principal: APIPrincipal = Depends(get_auth_dependency()),
 ):
     start = time.perf_counter()
+    require_scopes(principal, ("platform:chat",))
     limiter = get_rate_limiter()
     decision = enforce_rate_limit(limiter, principal, "platform:chat")
     adapter = get_llm_adapter()

@@ -23,9 +23,12 @@ class PlatformSettings(BaseSettings):
 
     auth_mode: str = Field(default="disabled")
     required_api_keys: str = Field(default="")
+    auth_api_keys_json: str = Field(default="[]")
 
     rate_limit_mode: str = "noop"
     rate_limit_rpm: int = 60
+    rate_limit_redis_url: str = "redis://localhost:6379/0"
+    rate_limit_redis_prefix: str = "flowbiz:rl"
 
     llm_provider: str = "stub"
     llm_model: str = "stub-echo"
@@ -39,4 +42,3 @@ class PlatformSettings(BaseSettings):
 @lru_cache
 def get_settings() -> PlatformSettings:
     return PlatformSettings()
-
