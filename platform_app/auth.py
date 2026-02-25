@@ -10,6 +10,7 @@ import json
 from fastapi import Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from platform_app.api_key_store import APIKeyStore
 from platform_app.config import PlatformSettings
 
 
@@ -95,6 +96,7 @@ def load_api_key_records(settings: PlatformSettings) -> dict[str, APIKeyRecord]:
 def authenticate_api_key(
     settings: PlatformSettings,
     x_api_key: str | None,
+    store: APIKeyStore | None = None,
 ) -> APIPrincipal:
     if settings.auth_mode == "disabled":
         return APIPrincipal(key_id="anonymous", scopes=("*", "public"))
@@ -118,8 +120,11 @@ def authenticate_api_key(
         )
 
     key_id, secret = x_api_key.split(":", 1)
-    allowed = load_api_key_records(settings)
-    record = allowed.get(key_id)
+    if store is not None:
+        record = store.get_key(key_id)
+    else:
+        allowed = load_api_key_records(settings)
+        record = allowed.get(key_id)
     given_hash = hash_api_key_secret(secret)
     if (
         record is None
@@ -149,8 +154,8 @@ def require_scopes(principal: APIPrincipal, required_scopes: tuple[str, ...]) ->
     return principal
 
 
-def auth_dependency_factory(settings: PlatformSettings):
+def auth_dependency_factory(settings: PlatformSettings, store: APIKeyStore | None = None):
     async def _dep(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> APIPrincipal:
-        return authenticate_api_key(settings, x_api_key)
+        return authenticate_api_key(settings, x_api_key, store=store)
 
     return _dep

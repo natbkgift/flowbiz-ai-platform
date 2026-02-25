@@ -20,6 +20,24 @@ This repo implements platform-specific behavior that is intentionally out of sco
   - observability bundle
 - Stub platform endpoint: `POST /v1/platform/chat`
 
+## Progress Snapshot (Current)
+
+- ✅ `#2` bootstrap implemented:
+  - SQLite-backed persistent API key store
+  - hashed secrets + scopes + revoke/rotate methods
+  - auth dependency can use `json` or `sqlite` store mode
+  - Redis fixed-window limiter implementation (Lua/eval path)
+  - `X-RateLimit-*` headers on chat endpoint responses
+- ✅ `#3` started (bootstrap implementation):
+  - OpenAI Chat Completions adapter (REST)
+  - secret provider backends: `env`, `file_json`
+  - provider error mapping to stable platform error path
+- ⏭️ Next recommended work:
+  - DB-backed key lifecycle admin APIs / rotation audit trail
+  - Redis client integration test against real Redis
+  - OpenAI integration smoke (controlled environment)
+  - tracing/metrics exporters (#4)
+
 ## #2 Public API Auth + API Key + Rate Limit (Next)
 
 ### Goal
@@ -90,4 +108,3 @@ Instrument platform behavior for production operations.
 4. Metrics + tracing
 5. Alerts and dashboards
 6. Hardened deploy lane for platform repo (reusing core scripts/runbooks where appropriate)
-

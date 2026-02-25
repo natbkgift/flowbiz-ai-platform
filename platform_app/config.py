@@ -22,6 +22,8 @@ class PlatformSettings(BaseSettings):
     log_level: str = "INFO"
 
     auth_mode: str = Field(default="disabled")
+    auth_store_mode: str = Field(default="json")
+    auth_sqlite_path: str = Field(default="platform_data/platform_auth.db")
     required_api_keys: str = Field(default="")
     auth_api_keys_json: str = Field(default="[]")
 
@@ -33,6 +35,10 @@ class PlatformSettings(BaseSettings):
     llm_provider: str = "stub"
     llm_model: str = "stub-echo"
     secret_provider: str = "env"
+    secret_file_path: str = "secrets.local.json"
+    llm_timeout_seconds: float = 30.0
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_api_key_secret_name: str = "OPENAI_API_KEY"
 
     metrics_mode: str = "log"
     tracing_mode: str = "disabled"

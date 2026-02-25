@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from platform_app.auth import APIPrincipal, require_scopes
 from platform_app.deps import (
@@ -12,8 +12,8 @@ from platform_app.deps import (
     get_llm_adapter,
     get_rate_limiter,
 )
-from platform_app.llm import ChatRequest
-from platform_app.rate_limit import enforce_rate_limit
+from platform_app.llm import ChatRequest, LLMProviderError
+from platform_app.rate_limit import apply_rate_limit_headers, enforce_rate_limit
 
 router = APIRouter(prefix="/v1/platform")
 
@@ -22,12 +22,14 @@ router = APIRouter(prefix="/v1/platform")
 def platform_chat(
     body: ChatRequest,
     request: Request,
+    response: Response,
     principal: APIPrincipal = Depends(get_auth_dependency()),
 ):
     start = time.perf_counter()
     require_scopes(principal, ("platform:chat",))
     limiter = get_rate_limiter()
     decision = enforce_rate_limit(limiter, principal, "platform:chat")
+    apply_rate_limit_headers(response, decision)
     adapter = get_llm_adapter()
 
     try:
@@ -35,6 +37,11 @@ def platform_chat(
     except NotImplementedError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=str(exc),
+        ) from exc
+    except LLMProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
 

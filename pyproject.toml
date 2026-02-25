@@ -11,7 +11,9 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
   "fastapi",
+  "httpx",
   "pydantic-settings",
+  "redis",
   "uvicorn[standard]",
   "flowbiz-ai-core==0.2.0",
 ]
@@ -29,4 +31,3 @@ src = ["apps", "platform_app", "tests"]
 
 [tool.setuptools.packages.find]
 include = ["apps*", "platform_app*"]
-

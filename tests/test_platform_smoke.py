@@ -31,7 +31,9 @@ def test_platform_chat_stub() -> None:
     client = _client()
     r = client.post("/v1/platform/chat", json={"prompt": "hello"})
     assert r.status_code == 200
+    assert "X-RateLimit-Limit" in r.headers
+    assert "X-RateLimit-Remaining" in r.headers
+    assert "X-RateLimit-Reset" in r.headers
     data = r.json()
     assert data["status"] == "ok"
     assert data["data"]["provider"] == "stub"
-
