@@ -29,6 +29,8 @@ class PlatformSettings(BaseSettings):
     workflow_events_sqlite_path: str = Field(
         default="platform_data/workflow_events.db"
     )
+    workflow_runner_dispatch_url: str = Field(default="")
+    platform_public_base_url: str = Field(default="http://localhost:8100")
 
     rate_limit_mode: str = "noop"
     rate_limit_rpm: int = 60

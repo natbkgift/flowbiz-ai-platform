@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from fastapi import Header
+from fastapi import Header, HTTPException, status
 
 from platform_app.auth import auth_dependency_factory
 from platform_app.api_key_store import SQLiteAPIKeyStore, resolve_auth_db_path
@@ -13,6 +13,7 @@ from platform_app.llm import build_llm_adapter
 from platform_app.rate_limit import build_rate_limiter
 from platform_app.secrets import build_secret_provider
 from platform_app.auth import hash_api_key_secret
+from platform_app.dispatch_records import SQLiteDispatchRecordStore, build_runner_dispatcher
 from platform_app.job_records import SQLiteJobRecordStore
 from platform_app.workflow_events import (
     SQLiteWorkflowEventStore,
@@ -74,3 +75,22 @@ def get_job_record_store() -> SQLiteJobRecordStore:
     return SQLiteJobRecordStore(
         db_path=resolve_workflow_events_db_path(settings.workflow_events_sqlite_path)
     )
+
+
+@lru_cache
+def get_dispatch_record_store() -> SQLiteDispatchRecordStore:
+    settings = get_settings()
+    return SQLiteDispatchRecordStore(
+        db_path=resolve_workflow_events_db_path(settings.workflow_events_sqlite_path)
+    )
+
+
+@lru_cache
+def get_runner_dispatcher():
+    try:
+        return build_runner_dispatcher(get_settings())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
