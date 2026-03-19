@@ -8,8 +8,10 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from platform_app.admission_policy import SQLiteAdmissionPolicyStore
 from platform_app.auth import APIPrincipal
 from platform_app.deps import (
+    get_admission_policy_store,
     get_dispatch_record_store,
     get_job_record_store,
     get_request_principal,
@@ -125,9 +127,27 @@ def create_job_record(
     request: Request,
     principal: APIPrincipal = Depends(get_request_principal),
     store: SQLiteJobRecordStore = Depends(get_job_record_store),
+    policy_store: SQLiteAdmissionPolicyStore = Depends(get_admission_policy_store),
 ) -> JobRecordResponse:
     del principal
     start = time.perf_counter()
+    decision = policy_store.evaluate_admission(body.client_id)
+    if not decision.allowed:
+        status_code = (
+            status.HTTP_403_FORBIDDEN
+            if decision.code == "client_disabled"
+            else status.HTTP_429_TOO_MANY_REQUESTS
+        )
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs",
+            status_code=status_code,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": decision.code, "message": decision.message},
+        )
     record = store.create_job(body)
     _record_observability(
         request,

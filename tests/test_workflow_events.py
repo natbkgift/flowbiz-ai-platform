@@ -9,6 +9,7 @@ from apps.platform_api.main import create_app
 from platform_app.auth import hash_api_key_secret
 from platform_app.config import get_settings
 from platform_app.deps import (
+    get_admission_policy_store,
     get_api_key_store,
     get_auth_dependency,
     get_llm_adapter,
@@ -27,6 +28,7 @@ def _clear_caches() -> None:
     get_api_key_store.cache_clear()
     get_auth_dependency.cache_clear()
     get_workflow_event_store.cache_clear()
+    get_admission_policy_store.cache_clear()
 
 
 @pytest.fixture(autouse=True)

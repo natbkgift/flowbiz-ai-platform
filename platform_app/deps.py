@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from fastapi import Header, HTTPException, status
 
+from platform_app.admission_policy import SQLiteAdmissionPolicyStore
 from platform_app.auth import auth_dependency_factory
 from platform_app.api_key_store import SQLiteAPIKeyStore, resolve_auth_db_path
 from platform_app.config import get_settings
@@ -94,3 +95,11 @@ def get_runner_dispatcher():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
+
+
+@lru_cache
+def get_admission_policy_store() -> SQLiteAdmissionPolicyStore:
+    settings = get_settings()
+    return SQLiteAdmissionPolicyStore(
+        db_path=resolve_workflow_events_db_path(settings.workflow_events_sqlite_path)
+    )
