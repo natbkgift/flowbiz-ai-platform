@@ -12,6 +12,23 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+PLATFORM_STATUS_RECEIVED = "received"
+PLATFORM_STATUS_ACCEPTED = "accepted"
+PLATFORM_STATUS_RUNNING = "running"
+PLATFORM_STATUS_SUCCEEDED = "succeeded"
+PLATFORM_STATUS_FAILED = "failed"
+PLATFORM_STATUS_CANCELLED = "cancelled"
+PLATFORM_STATUS_UNKNOWN = "unknown"
+
+_PLATFORM_STATUS_MAP = {
+    PLATFORM_STATUS_RECEIVED: {"received", "ingested"},
+    PLATFORM_STATUS_ACCEPTED: {"accepted", "queued", "pending"},
+    PLATFORM_STATUS_RUNNING: {"running", "in_progress", "processing", "started"},
+    PLATFORM_STATUS_SUCCEEDED: {"succeeded", "success", "completed", "done"},
+    PLATFORM_STATUS_FAILED: {"failed", "error", "errored"},
+    PLATFORM_STATUS_CANCELLED: {"cancelled", "canceled"},
+}
+
 
 class WorkflowEventIngestRequest(BaseModel):
     """Append-friendly workflow event intake payload."""
@@ -48,6 +65,19 @@ class WorkflowEventLookupResponse(BaseModel):
 class WorkflowEventIngestResponse(BaseModel):
     status: str = "accepted"
     record: WorkflowEventRecord
+
+
+class JobStateProjectionResponse(BaseModel):
+    status: str = "ok"
+    job_id: str
+    current_status: str
+    raw_status: str
+    execution_id: str | None
+    client_id: str
+    workflow_key: str
+    received_at: str
+    source: str | None
+    event_count: int
 
 
 @dataclass(frozen=True)
@@ -211,3 +241,42 @@ def resolve_workflow_events_db_path(path_value: str) -> str:
     if path.is_absolute():
         return str(path)
     return str((Path.cwd() / path).resolve())
+
+
+def normalize_workflow_status(raw_status: str) -> str:
+    normalized = raw_status.strip().lower()
+    for platform_status, raw_statuses in _PLATFORM_STATUS_MAP.items():
+        if normalized in raw_statuses:
+            return platform_status
+    return PLATFORM_STATUS_UNKNOWN
+
+
+def project_job_state(
+    events: list[WorkflowEventRecord],
+) -> JobStateProjectionResponse | None:
+    if not events:
+        return None
+
+    ordered_events = sorted(events, key=lambda item: (item.received_at, item.id))
+    latest = ordered_events[-1]
+
+    latest_execution_id = next(
+        (event.execution_id for event in reversed(ordered_events) if event.execution_id),
+        None,
+    )
+    latest_source = next(
+        (event.source for event in reversed(ordered_events) if event.source),
+        None,
+    )
+
+    return JobStateProjectionResponse(
+        job_id=latest.job_id,
+        current_status=normalize_workflow_status(latest.status),
+        raw_status=latest.status,
+        execution_id=latest_execution_id,
+        client_id=latest.client_id,
+        workflow_key=latest.workflow_key,
+        received_at=latest.received_at,
+        source=latest_source,
+        event_count=len(ordered_events),
+    )

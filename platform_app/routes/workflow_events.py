@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from platform_app.auth import APIPrincipal
 from platform_app.deps import get_request_principal, get_workflow_event_store
 from platform_app.workflow_events import (
+    JobStateProjectionResponse,
     WorkflowEventIngestResponse,
     SQLiteWorkflowEventStore,
     WorkflowEventIngestRequest,
     WorkflowEventLookupResponse,
+    project_job_state,
 )
 
 router = APIRouter(prefix="/v1/platform/workflows")
@@ -65,3 +67,34 @@ def lookup_workflow_events(
         start=start,
     )
     return WorkflowEventLookupResponse(job_id=job_id, count=len(records), records=records)
+
+
+@router.get("/jobs/{job_id}", response_model=JobStateProjectionResponse)
+def lookup_projected_job_state(
+    job_id: str,
+    request: Request,
+    principal: APIPrincipal = Depends(get_request_principal),
+    store: SQLiteWorkflowEventStore = Depends(get_workflow_event_store),
+) -> JobStateProjectionResponse:
+    del principal
+    start = time.perf_counter()
+    projection = project_job_state(store.list_by_job_id(job_id))
+    if projection is None:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}",
+            status_code=status.HTTP_404_NOT_FOUND,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job not found: {job_id}",
+        )
+
+    _record_observability(
+        request,
+        route="/v1/platform/workflows/jobs/{job_id}",
+        status_code=status.HTTP_200_OK,
+        start=start,
+    )
+    return projection
