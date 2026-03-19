@@ -7,7 +7,12 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from platform_app.auth import APIPrincipal
-from platform_app.deps import get_request_principal, get_workflow_event_store
+from platform_app.deps import (
+    get_job_record_store,
+    get_request_principal,
+    get_workflow_event_store,
+)
+from platform_app.job_records import JobCreateRequest, JobRecordResponse, SQLiteJobRecordStore
 from platform_app.workflow_events import (
     JobStateProjectionResponse,
     WorkflowEventIngestResponse,
@@ -98,3 +103,53 @@ def lookup_projected_job_state(
         start=start,
     )
     return projection
+
+
+@router.post("/jobs", status_code=status.HTTP_201_CREATED, response_model=JobRecordResponse)
+def create_job_record(
+    body: JobCreateRequest,
+    request: Request,
+    principal: APIPrincipal = Depends(get_request_principal),
+    store: SQLiteJobRecordStore = Depends(get_job_record_store),
+) -> JobRecordResponse:
+    del principal
+    start = time.perf_counter()
+    record = store.create_job(body)
+    _record_observability(
+        request,
+        route="/v1/platform/workflows/jobs",
+        status_code=status.HTTP_201_CREATED,
+        start=start,
+    )
+    return record
+
+
+@router.get("/jobs/{job_id}/record", response_model=JobRecordResponse)
+def lookup_job_record(
+    job_id: str,
+    request: Request,
+    principal: APIPrincipal = Depends(get_request_principal),
+    store: SQLiteJobRecordStore = Depends(get_job_record_store),
+) -> JobRecordResponse:
+    del principal
+    start = time.perf_counter()
+    record = store.get_job(job_id)
+    if record is None:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/record",
+            status_code=status.HTTP_404_NOT_FOUND,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job record not found: {job_id}",
+        )
+
+    _record_observability(
+        request,
+        route="/v1/platform/workflows/jobs/{job_id}/record",
+        status_code=status.HTTP_200_OK,
+        start=start,
+    )
+    return record

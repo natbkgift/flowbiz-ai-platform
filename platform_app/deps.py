@@ -13,6 +13,7 @@ from platform_app.llm import build_llm_adapter
 from platform_app.rate_limit import build_rate_limiter
 from platform_app.secrets import build_secret_provider
 from platform_app.auth import hash_api_key_secret
+from platform_app.job_records import SQLiteJobRecordStore
 from platform_app.workflow_events import (
     SQLiteWorkflowEventStore,
     resolve_workflow_events_db_path,
@@ -63,5 +64,13 @@ async def get_request_principal(
 def get_workflow_event_store() -> SQLiteWorkflowEventStore:
     settings = get_settings()
     return SQLiteWorkflowEventStore(
+        db_path=resolve_workflow_events_db_path(settings.workflow_events_sqlite_path)
+    )
+
+
+@lru_cache
+def get_job_record_store() -> SQLiteJobRecordStore:
+    settings = get_settings()
+    return SQLiteJobRecordStore(
         db_path=resolve_workflow_events_db_path(settings.workflow_events_sqlite_path)
     )
