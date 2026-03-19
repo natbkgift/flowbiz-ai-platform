@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from platform_app.auth import APIPrincipal, require_scopes
 from platform_app.deps import (
-    get_auth_dependency,
     get_llm_adapter,
+    get_request_principal,
     get_rate_limiter,
 )
 from platform_app.llm import ChatRequest, LLMProviderError
@@ -23,7 +23,7 @@ def platform_chat(
     body: ChatRequest,
     request: Request,
     response: Response,
-    principal: APIPrincipal = Depends(get_auth_dependency()),
+    principal: APIPrincipal = Depends(get_request_principal),
 ):
     start = time.perf_counter()
     require_scopes(principal, ("platform:chat",))

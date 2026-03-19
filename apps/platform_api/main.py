@@ -10,6 +10,7 @@ from platform_app.config import get_settings
 from platform_app.observability import init_observability
 from platform_app.routes.platform import router as platform_router
 from platform_app.routes.system import router as system_router
+from platform_app.routes.workflow_events import router as workflow_events_router
 
 
 @asynccontextmanager
@@ -28,8 +29,8 @@ def create_app() -> FastAPI:
     )
     app.include_router(system_router)
     app.include_router(platform_router)
+    app.include_router(workflow_events_router)
     return app
 
 
 app = create_app()
-

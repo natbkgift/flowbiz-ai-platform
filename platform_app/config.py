@@ -26,6 +26,9 @@ class PlatformSettings(BaseSettings):
     auth_sqlite_path: str = Field(default="platform_data/platform_auth.db")
     required_api_keys: str = Field(default="")
     auth_api_keys_json: str = Field(default="[]")
+    workflow_events_sqlite_path: str = Field(
+        default="platform_data/workflow_events.db"
+    )
 
     rate_limit_mode: str = "noop"
     rate_limit_rpm: int = 60
