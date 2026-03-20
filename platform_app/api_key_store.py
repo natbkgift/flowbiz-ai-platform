@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 import sqlite3
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from threading import Lock
 from typing import Protocol
@@ -15,6 +16,7 @@ class StoredAPIKey:
     key_id: str
     secret_hash: str
     scopes: tuple[str, ...]
+    client_id: str | None = None
     disabled: bool = False
 
 
@@ -24,16 +26,45 @@ class IssuedAPIKey:
     secret_plaintext: str
     secret_hash: str
     scopes: tuple[str, ...]
+    client_id: str | None = None
+
+
+@dataclass(frozen=True)
+class APIKeyAuditEvent:
+    id: int
+    client_id: str | None
+    action: str
+    key_id: str
+    actor: str
+    created_at: str
+    metadata: dict[str, object] | None = None
 
 
 class APIKeyStore(Protocol):
     def get_key(self, key_id: str) -> StoredAPIKey | None: ...
 
-    def create_key(self, key_id: str, scopes: tuple[str, ...]) -> IssuedAPIKey: ...
+    def create_key(
+        self,
+        key_id: str,
+        scopes: tuple[str, ...],
+        client_id: str | None = None,
+        actor: str = "system",
+        metadata: dict[str, object] | None = None,
+    ) -> IssuedAPIKey: ...
 
-    def rotate_key(self, key_id: str) -> IssuedAPIKey: ...
+    def rotate_key(
+        self,
+        key_id: str,
+        actor: str = "system",
+        metadata: dict[str, object] | None = None,
+    ) -> IssuedAPIKey: ...
 
-    def revoke_key(self, key_id: str) -> None: ...
+    def revoke_key(
+        self,
+        key_id: str,
+        actor: str = "system",
+        metadata: dict[str, object] | None = None,
+    ) -> None: ...
 
 
 def _normalize_scopes(scopes: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -84,6 +115,7 @@ class SQLiteAPIKeyStore:
 
                 CREATE TABLE IF NOT EXISTS api_keys (
                   key_id TEXT PRIMARY KEY,
+                  client_id TEXT NULL,
                   secret_hash TEXT NOT NULL,
                   disabled INTEGER NOT NULL DEFAULT 0,
                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -96,13 +128,32 @@ class SQLiteAPIKeyStore:
                   PRIMARY KEY (key_id, scope),
                   FOREIGN KEY (key_id) REFERENCES api_keys(key_id) ON DELETE CASCADE
                 );
+
+                CREATE TABLE IF NOT EXISTS api_key_audit_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  client_id TEXT NULL,
+                  action TEXT NOT NULL,
+                  key_id TEXT NOT NULL,
+                  actor TEXT NOT NULL,
+                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  metadata TEXT NULL
+                );
                 """
             )
-
+            cols = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(api_keys)").fetchall()
+            }
+            if "client_id" not in cols:
+                conn.execute("ALTER TABLE api_keys ADD COLUMN client_id TEXT NULL")
     def get_key(self, key_id: str) -> StoredAPIKey | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT key_id, secret_hash, disabled FROM api_keys WHERE key_id = ?",
+                """
+                SELECT key_id, client_id, secret_hash, disabled
+                FROM api_keys
+                WHERE key_id = ?
+                """,
                 (key_id,),
             ).fetchone()
             if row is None:
@@ -114,6 +165,7 @@ class SQLiteAPIKeyStore:
         scopes = tuple(str(r["scope"]) for r in scope_rows)
         return StoredAPIKey(
             key_id=str(row["key_id"]),
+            client_id=str(row["client_id"]) if row["client_id"] else None,
             secret_hash=str(row["secret_hash"]),
             disabled=bool(row["disabled"]),
             scopes=scopes,
@@ -127,22 +179,32 @@ class SQLiteAPIKeyStore:
         key_id: str,
         secret_plaintext: str,
         scopes: tuple[str, ...],
+        client_id: str | None = None,
         disabled: bool = False,
+        audit_action: str | None = None,
+        actor: str = "system",
+        metadata: dict[str, object] | None = None,
     ) -> IssuedAPIKey:
         scopes = _normalize_scopes(scopes)
         secret_hash = self._hash_secret_fn(secret_plaintext)
+        metadata_json = (
+            json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+            if metadata is not None
+            else None
+        )
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO api_keys (key_id, secret_hash, disabled)
-                    VALUES (?, ?, ?)
+                    INSERT INTO api_keys (key_id, client_id, secret_hash, disabled)
+                    VALUES (?, ?, ?, ?)
                     ON CONFLICT(key_id) DO UPDATE SET
+                      client_id = excluded.client_id,
                       secret_hash = excluded.secret_hash,
                       disabled = excluded.disabled,
                       updated_at = CURRENT_TIMESTAMP
                     """,
-                    (key_id, secret_hash, int(disabled)),
+                    (key_id, client_id, secret_hash, int(disabled)),
                 )
                 conn.execute(
                     "DELETE FROM api_key_scopes WHERE key_id = ?",
@@ -152,14 +214,31 @@ class SQLiteAPIKeyStore:
                     "INSERT INTO api_key_scopes (key_id, scope) VALUES (?, ?)",
                     [(key_id, scope) for scope in scopes],
                 )
+                if audit_action is not None:
+                    self._insert_audit_event(
+                        conn=conn,
+                        client_id=client_id,
+                        action=audit_action,
+                        key_id=key_id,
+                        actor=actor,
+                        metadata_json=metadata_json,
+                    )
         return IssuedAPIKey(
             key_id=key_id,
             secret_plaintext=secret_plaintext,
             secret_hash=secret_hash,
             scopes=scopes,
+            client_id=client_id,
         )
 
-    def create_key(self, key_id: str, scopes: tuple[str, ...]) -> IssuedAPIKey:
+    def create_key(
+        self,
+        key_id: str,
+        scopes: tuple[str, ...],
+        client_id: str | None = None,
+        actor: str = "system",
+        metadata: dict[str, object] | None = None,
+    ) -> IssuedAPIKey:
         existing = self.get_key(key_id)
         if existing is not None:
             raise ValueError(f"API key already exists: {key_id}")
@@ -167,21 +246,27 @@ class SQLiteAPIKeyStore:
             key_id=key_id,
             secret_plaintext=self._issue_secret(),
             scopes=scopes,
+            client_id=client_id,
             disabled=False,
+            audit_action="issued",
+            actor=actor,
+            metadata=metadata,
         )
 
-    def rotate_key(self, key_id: str) -> IssuedAPIKey:
+    def revoke_key(
+        self,
+        key_id: str,
+        actor: str = "system",
+        metadata: dict[str, object] | None = None,
+    ) -> None:
         existing = self.get_key(key_id)
         if existing is None:
             raise KeyError(f"API key not found: {key_id}")
-        return self._upsert_key_with_secret(
-            key_id=key_id,
-            secret_plaintext=self._issue_secret(),
-            scopes=existing.scopes,
-            disabled=False,
+        metadata_json = (
+            json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+            if metadata is not None
+            else None
         )
-
-    def revoke_key(self, key_id: str) -> None:
         with self._lock:
             with self._connect() as conn:
                 updated = conn.execute(
@@ -194,6 +279,97 @@ class SQLiteAPIKeyStore:
                 )
                 if updated.rowcount == 0:
                     raise KeyError(f"API key not found: {key_id}")
+                self._insert_audit_event(
+                    conn=conn,
+                    client_id=existing.client_id,
+                    action="revoked",
+                    key_id=key_id,
+                    actor=actor,
+                    metadata_json=metadata_json,
+                )
+
+    def rotate_key(
+        self,
+        key_id: str,
+        actor: str = "system",
+        metadata: dict[str, object] | None = None,
+    ) -> IssuedAPIKey:
+        existing = self.get_key(key_id)
+        if existing is None:
+            raise KeyError(f"API key not found: {key_id}")
+        return self._upsert_key_with_secret(
+            key_id=key_id,
+            secret_plaintext=self._issue_secret(),
+            scopes=existing.scopes,
+            client_id=existing.client_id,
+            disabled=False,
+            actor=actor,
+            metadata=metadata,
+        )
+
+    def list_audit_events(self, client_id: str | None = None) -> list[APIKeyAuditEvent]:
+        query = """
+            SELECT
+              id,
+              client_id,
+              action,
+              key_id,
+              actor,
+              created_at,
+              metadata
+            FROM api_key_audit_events
+        """
+        params: tuple[object, ...] = ()
+        if client_id is not None:
+            query += " WHERE client_id = ?"
+            params = (client_id,)
+        query += " ORDER BY id ASC"
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [
+            APIKeyAuditEvent(
+                id=int(row["id"]),
+                client_id=str(row["client_id"]) if row["client_id"] else None,
+                action=str(row["action"]),
+                key_id=str(row["key_id"]),
+                actor=str(row["actor"]),
+                created_at=str(row["created_at"]),
+                metadata=json.loads(row["metadata"]) if row["metadata"] else None,
+            )
+            for row in rows
+        ]
+
+    def _insert_audit_event(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        client_id: str | None,
+        action: str,
+        key_id: str,
+        actor: str,
+        metadata_json: str | None,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO api_key_audit_events (
+              client_id,
+              action,
+              key_id,
+              actor,
+              metadata
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                client_id,
+                action,
+                key_id,
+                actor,
+                metadata_json,
+            ),
+        )
 
 
 def resolve_auth_db_path(path_value: str) -> str:

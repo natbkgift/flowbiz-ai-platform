@@ -50,6 +50,16 @@ def get_api_key_store():
     raise ValueError(f"Unsupported auth_store_mode: {settings.auth_store_mode}")
 
 
+def get_required_api_key_store() -> SQLiteAPIKeyStore:
+    store = get_api_key_store()
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API key lifecycle requires PLATFORM_AUTH_STORE_MODE=sqlite",
+        )
+    return store
+
+
 @lru_cache
 def get_auth_dependency():
     return auth_dependency_factory(get_settings(), store=get_api_key_store())
