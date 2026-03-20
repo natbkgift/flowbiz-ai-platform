@@ -29,6 +29,7 @@ class APIKeyIssueRequest(BaseModel):
 
     client_id: str = Field(min_length=1)
     scopes: tuple[str, ...] = ("platform:chat",)
+    reason: str | None = Field(default=None, min_length=1)
 
 
 class APIKeyIssueResponse(BaseModel):
@@ -44,12 +45,30 @@ class APIKeyRevokeResponse(BaseModel):
     key_id: str
 
 
+class APIKeyRotateResponse(BaseModel):
+    status: str = "rotated"
+    client_id: str | None = None
+    key_id: str
+    api_key: str
+    scopes: tuple[str, ...]
+
+
+class APIKeyLifecycleActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, min_length=1)
+
+
 class APIKeyAuditEventResponse(BaseModel):
     id: int
     client_id: str | None
     action: str
+    event_type: str
     key_id: str
     actor: str
+    actor_type: str | None = None
+    actor_id: str | None = None
+    reason: str | None = None
     created_at: str
     metadata: dict[str, object] | None = None
 
@@ -65,8 +84,12 @@ def _audit_to_response(event: APIKeyAuditEvent) -> APIKeyAuditEventResponse:
         id=event.id,
         client_id=event.client_id,
         action=event.action,
+        event_type=event.event_type,
         key_id=event.key_id,
         actor=event.actor,
+        actor_type=event.actor_type,
+        actor_id=event.actor_id,
+        reason=event.reason,
         created_at=event.created_at,
         metadata=event.metadata,
     )
@@ -142,6 +165,9 @@ def issue_api_key(
         scopes=body.scopes,
         client_id=body.client_id,
         actor="admin_api",
+        actor_type="api_key",
+        actor_id=principal.key_id,
+        reason=body.reason,
         metadata={"issued_by": principal.key_id},
     )
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -157,10 +183,52 @@ def issue_api_key(
     )
 
 
+@router.post("/api-keys/{key_id}/rotate", response_model=APIKeyRotateResponse)
+def rotate_api_key(
+    key_id: str,
+    request: Request,
+    body: APIKeyLifecycleActionRequest | None = None,
+    principal: APIPrincipal = Depends(get_request_principal),
+    store: SQLiteAPIKeyStore = Depends(get_required_api_key_store),
+) -> APIKeyRotateResponse:
+    start = time.perf_counter()
+    require_scopes(principal, (API_KEY_MANAGE_SCOPE,))
+    try:
+        issued = store.rotate_key(
+            key_id=key_id,
+            actor="admin_api",
+            actor_type="api_key",
+            actor_id=principal.key_id,
+            reason=body.reason if body is not None else None,
+            metadata={"rotated_by": principal.key_id},
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+    obs = getattr(request.app.state, "observability", None)
+    if obs is not None:
+        obs.record(
+            route="/v1/platform/api-keys/{key_id}/rotate",
+            status_code=200,
+            duration_ms=duration_ms,
+        )
+    return APIKeyRotateResponse(
+        client_id=issued.client_id,
+        key_id=issued.key_id,
+        api_key=f"{issued.key_id}:{issued.secret_plaintext}",
+        scopes=issued.scopes,
+    )
+
+
 @router.post("/api-keys/{key_id}/revoke", response_model=APIKeyRevokeResponse)
 def revoke_api_key(
     key_id: str,
     request: Request,
+    body: APIKeyLifecycleActionRequest | None = None,
     principal: APIPrincipal = Depends(get_request_principal),
     store: SQLiteAPIKeyStore = Depends(get_required_api_key_store),
 ) -> APIKeyRevokeResponse:
@@ -170,6 +238,9 @@ def revoke_api_key(
         store.revoke_key(
             key_id=key_id,
             actor="admin_api",
+            actor_type="api_key",
+            actor_id=principal.key_id,
+            reason=body.reason if body is not None else None,
             metadata={"revoked_by": principal.key_id},
         )
     except KeyError as exc:

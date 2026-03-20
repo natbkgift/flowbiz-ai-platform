@@ -71,7 +71,11 @@ def test_api_key_issue_success_and_new_key_authenticates(monkeypatch, tmp_path) 
 
     issue = client.post(
         "/v1/platform/api-keys",
-        json={"client_id": "client-a", "scopes": ["platform:chat"]},
+        json={
+            "client_id": "client-a",
+            "scopes": ["platform:chat"],
+            "reason": "initial bootstrap issuance",
+        },
         headers=manager_headers,
     )
 
@@ -90,6 +94,17 @@ def test_api_key_issue_success_and_new_key_authenticates(monkeypatch, tmp_path) 
     assert chat.status_code == 200
     assert chat.json()["status"] == "ok"
 
+    audit = client.get("/v1/platform/api-keys/audit", headers=manager_headers)
+    assert audit.status_code == 200
+    issued_event = next(
+        item for item in audit.json()["events"] if item["action"] == "issued" and item["key_id"] == issue_data["key_id"]
+    )
+    assert issued_event["event_type"] == "issued"
+    assert issued_event["actor"] == "admin_api"
+    assert issued_event["actor_type"] == "api_key"
+    assert issued_event["actor_id"] == "manager"
+    assert issued_event["reason"] == "initial bootstrap issuance"
+
 def test_revoked_key_is_rejected_and_audited(monkeypatch, tmp_path) -> None:
     _, manager = _seed_manager_key(tmp_path)
     client = _client(monkeypatch, tmp_path)
@@ -104,6 +119,7 @@ def test_revoked_key_is_rejected_and_audited(monkeypatch, tmp_path) -> None:
 
     revoke = client.post(
         f"/v1/platform/api-keys/{key_data['key_id']}/revoke",
+        json={"reason": "manual revoke after test"},
         headers=manager_headers,
     )
     assert revoke.status_code == 200
@@ -119,8 +135,14 @@ def test_revoked_key_is_rejected_and_audited(monkeypatch, tmp_path) -> None:
 
     audit = client.get("/v1/platform/api-keys/audit", headers=manager_headers)
     assert audit.status_code == 200
-    actions = [item["action"] for item in audit.json()["events"] if item["key_id"] == key_data["key_id"]]
+    events = [item for item in audit.json()["events"] if item["key_id"] == key_data["key_id"]]
+    actions = [item["action"] for item in events]
     assert actions == ["issued", "revoked"]
+    revoked_event = events[-1]
+    assert revoked_event["event_type"] == "revoked"
+    assert revoked_event["actor_type"] == "api_key"
+    assert revoked_event["actor_id"] == "manager"
+    assert revoked_event["reason"] == "manual revoke after test"
 
 
 def test_api_key_audit_never_leaks_raw_secret(monkeypatch, tmp_path) -> None:
@@ -161,3 +183,83 @@ def test_api_key_issue_requires_manage_scope(monkeypatch, tmp_path) -> None:
     )
     assert issue.status_code == 403
     assert "platform:api_keys:manage" in issue.json()["detail"]
+
+
+def test_api_key_rotate_success_old_key_rejected_new_key_accepted(monkeypatch, tmp_path) -> None:
+    _, manager = _seed_manager_key(tmp_path)
+    client = _client(monkeypatch, tmp_path)
+    manager_headers = {"X-API-Key": f"{manager.key_id}:{manager.secret_plaintext}"}
+
+    issue = client.post(
+        "/v1/platform/api-keys",
+        json={"client_id": "client-a", "scopes": ["platform:chat"]},
+        headers=manager_headers,
+    )
+    assert issue.status_code == 201
+    old_key_data = issue.json()
+
+    rotate = client.post(
+        f"/v1/platform/api-keys/{old_key_data['key_id']}/rotate",
+        json={"reason": "routine credential rotation"},
+        headers=manager_headers,
+    )
+    assert rotate.status_code == 200
+    rotate_data = rotate.json()
+    assert rotate_data["status"] == "rotated"
+    assert rotate_data["key_id"] == old_key_data["key_id"]
+    assert rotate_data["client_id"] == "client-a"
+    assert rotate_data["scopes"] == ["platform:chat"]
+    assert rotate_data["api_key"].startswith(old_key_data["key_id"] + ":")
+    assert rotate_data["api_key"] != old_key_data["api_key"]
+    assert old_key_data["api_key"].split(":", 1)[1] not in rotate.text
+
+    old_chat = client.post(
+        "/v1/platform/chat",
+        json={"prompt": "hello"},
+        headers={"X-API-Key": old_key_data["api_key"]},
+    )
+    assert old_chat.status_code == 401
+    assert old_chat.json()["detail"] == "Invalid API key"
+
+    new_chat = client.post(
+        "/v1/platform/chat",
+        json={"prompt": "hello"},
+        headers={"X-API-Key": rotate_data["api_key"]},
+    )
+    assert new_chat.status_code == 200
+    assert new_chat.json()["status"] == "ok"
+
+
+def test_api_key_rotate_audit_contains_actor_reason_and_no_secret_leak(monkeypatch, tmp_path) -> None:
+    _, manager = _seed_manager_key(tmp_path)
+    client = _client(monkeypatch, tmp_path)
+    manager_headers = {"X-API-Key": f"{manager.key_id}:{manager.secret_plaintext}"}
+
+    issue = client.post(
+        "/v1/platform/api-keys",
+        json={"client_id": "client-a", "scopes": ["platform:chat"]},
+        headers=manager_headers,
+    )
+    key_data = issue.json()
+    old_secret = key_data["api_key"].split(":", 1)[1]
+
+    rotate = client.post(
+        f"/v1/platform/api-keys/{key_data['key_id']}/rotate",
+        json={"reason": "suspected compromise"},
+        headers=manager_headers,
+    )
+    assert rotate.status_code == 200
+    new_secret = rotate.json()["api_key"].split(":", 1)[1]
+
+    audit = client.get("/v1/platform/api-keys/audit", headers=manager_headers)
+    assert audit.status_code == 200
+    audit_data = audit.json()
+    events = [item for item in audit_data["events"] if item["key_id"] == key_data["key_id"]]
+    assert [item["event_type"] for item in events] == ["issued", "rotated", "revoked_by_rotation"]
+    assert events[1]["actor"] == "admin_api"
+    assert events[1]["actor_type"] == "api_key"
+    assert events[1]["actor_id"] == "manager"
+    assert events[1]["reason"] == "suspected compromise"
+    assert events[2]["reason"] == "suspected compromise"
+    assert old_secret not in audit.text
+    assert new_secret not in audit.text

@@ -34,8 +34,12 @@ class APIKeyAuditEvent:
     id: int
     client_id: str | None
     action: str
+    event_type: str
     key_id: str
     actor: str
+    actor_type: str | None
+    actor_id: str | None
+    reason: str | None
     created_at: str
     metadata: dict[str, object] | None = None
 
@@ -49,6 +53,9 @@ class APIKeyStore(Protocol):
         scopes: tuple[str, ...],
         client_id: str | None = None,
         actor: str = "system",
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        reason: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> IssuedAPIKey: ...
 
@@ -56,6 +63,9 @@ class APIKeyStore(Protocol):
         self,
         key_id: str,
         actor: str = "system",
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        reason: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> IssuedAPIKey: ...
 
@@ -63,6 +73,9 @@ class APIKeyStore(Protocol):
         self,
         key_id: str,
         actor: str = "system",
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        reason: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None: ...
 
@@ -135,6 +148,9 @@ class SQLiteAPIKeyStore:
                   action TEXT NOT NULL,
                   key_id TEXT NOT NULL,
                   actor TEXT NOT NULL,
+                  actor_type TEXT NULL,
+                  actor_id TEXT NULL,
+                  reason TEXT NULL,
                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   metadata TEXT NULL
                 );
@@ -146,6 +162,17 @@ class SQLiteAPIKeyStore:
             }
             if "client_id" not in cols:
                 conn.execute("ALTER TABLE api_keys ADD COLUMN client_id TEXT NULL")
+            audit_cols = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(api_key_audit_events)").fetchall()
+            }
+            if "actor_type" not in audit_cols:
+                conn.execute("ALTER TABLE api_key_audit_events ADD COLUMN actor_type TEXT NULL")
+            if "actor_id" not in audit_cols:
+                conn.execute("ALTER TABLE api_key_audit_events ADD COLUMN actor_id TEXT NULL")
+            if "reason" not in audit_cols:
+                conn.execute("ALTER TABLE api_key_audit_events ADD COLUMN reason TEXT NULL")
+
     def get_key(self, key_id: str) -> StoredAPIKey | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -183,6 +210,10 @@ class SQLiteAPIKeyStore:
         disabled: bool = False,
         audit_action: str | None = None,
         actor: str = "system",
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        reason: str | None = None,
+        additional_audit_actions: tuple[str, ...] = (),
         metadata: dict[str, object] | None = None,
     ) -> IssuedAPIKey:
         scopes = _normalize_scopes(scopes)
@@ -221,6 +252,21 @@ class SQLiteAPIKeyStore:
                         action=audit_action,
                         key_id=key_id,
                         actor=actor,
+                        actor_type=actor_type,
+                        actor_id=actor_id,
+                        reason=reason,
+                        metadata_json=metadata_json,
+                    )
+                for extra_action in additional_audit_actions:
+                    self._insert_audit_event(
+                        conn=conn,
+                        client_id=client_id,
+                        action=extra_action,
+                        key_id=key_id,
+                        actor=actor,
+                        actor_type=actor_type,
+                        actor_id=actor_id,
+                        reason=reason,
                         metadata_json=metadata_json,
                     )
         return IssuedAPIKey(
@@ -237,6 +283,9 @@ class SQLiteAPIKeyStore:
         scopes: tuple[str, ...],
         client_id: str | None = None,
         actor: str = "system",
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        reason: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> IssuedAPIKey:
         existing = self.get_key(key_id)
@@ -250,6 +299,9 @@ class SQLiteAPIKeyStore:
             disabled=False,
             audit_action="issued",
             actor=actor,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            reason=reason or "issued_via_api",
             metadata=metadata,
         )
 
@@ -257,6 +309,9 @@ class SQLiteAPIKeyStore:
         self,
         key_id: str,
         actor: str = "system",
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        reason: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
         existing = self.get_key(key_id)
@@ -285,6 +340,9 @@ class SQLiteAPIKeyStore:
                     action="revoked",
                     key_id=key_id,
                     actor=actor,
+                    actor_type=actor_type,
+                    actor_id=actor_id,
+                    reason=reason or "revoked_via_api",
                     metadata_json=metadata_json,
                 )
 
@@ -292,6 +350,9 @@ class SQLiteAPIKeyStore:
         self,
         key_id: str,
         actor: str = "system",
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        reason: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> IssuedAPIKey:
         existing = self.get_key(key_id)
@@ -303,7 +364,12 @@ class SQLiteAPIKeyStore:
             scopes=existing.scopes,
             client_id=existing.client_id,
             disabled=False,
+            audit_action="rotated",
             actor=actor,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            reason=reason or "rotated_via_api",
+            additional_audit_actions=("revoked_by_rotation",),
             metadata=metadata,
         )
 
@@ -315,6 +381,9 @@ class SQLiteAPIKeyStore:
               action,
               key_id,
               actor,
+              actor_type,
+              actor_id,
+              reason,
               created_at,
               metadata
             FROM api_key_audit_events
@@ -333,8 +402,12 @@ class SQLiteAPIKeyStore:
                 id=int(row["id"]),
                 client_id=str(row["client_id"]) if row["client_id"] else None,
                 action=str(row["action"]),
+                event_type=str(row["action"]),
                 key_id=str(row["key_id"]),
                 actor=str(row["actor"]),
+                actor_type=str(row["actor_type"]) if row["actor_type"] else None,
+                actor_id=str(row["actor_id"]) if row["actor_id"] else None,
+                reason=str(row["reason"]) if row["reason"] else None,
                 created_at=str(row["created_at"]),
                 metadata=json.loads(row["metadata"]) if row["metadata"] else None,
             )
@@ -349,6 +422,9 @@ class SQLiteAPIKeyStore:
         action: str,
         key_id: str,
         actor: str,
+        actor_type: str | None,
+        actor_id: str | None,
+        reason: str | None,
         metadata_json: str | None,
     ) -> None:
         conn.execute(
@@ -358,15 +434,21 @@ class SQLiteAPIKeyStore:
               action,
               key_id,
               actor,
+              actor_type,
+              actor_id,
+              reason,
               metadata
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 client_id,
                 action,
                 key_id,
                 actor,
+                actor_type,
+                actor_id,
+                reason,
                 metadata_json,
             ),
         )
