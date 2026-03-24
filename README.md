@@ -80,4 +80,12 @@ uvicorn apps.platform_api.main:app --host 0.0.0.0 --port 8100 --reload
 - Dispatch and callback routes are present, but the default local env leaves runner dispatch disabled until you explicitly set `PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL` and `PLATFORM_WORKFLOW_CALLBACK_SHARED_SECRET`.
 - If you are developing cross-repo integrations, you can still install `flowbiz-ai-core` manually from a local path, but it is not required for local platform boot.
 
+## CI Baseline
+
+GitHub Actions runs the repo-local regression gate on pushes to `main` and on pull requests:
+
+- `ruff check .`
+- `pytest -q`
+- a smoke command that imports `apps.platform_api.main`, creates the FastAPI app, and verifies workflow routes are registered
+
 See `docs/PLATFORM_ROADMAP.md` for #2-#4 implementation plan.
