@@ -35,6 +35,23 @@ class JobRecordResponse(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class JobListItemResponse(BaseModel):
+    job_id: str
+    client_id: str
+    workflow_key: str
+    admission_status: str
+    current_status: str
+    raw_status: str | None = None
+    created_at: str
+    latest_received_at: str | None = None
+
+
+class JobListResponse(BaseModel):
+    status: str = "ok"
+    count: int
+    jobs: list[JobListItemResponse]
+
+
 @dataclass(frozen=True)
 class StoredJobRecord:
     job_id: str
@@ -88,6 +105,9 @@ class SQLiteJobRecordStore:
                   input_payload TEXT NULL,
                   metadata TEXT NULL
                 );
+
+                CREATE INDEX IF NOT EXISTS idx_workflow_jobs_created_at
+                  ON workflow_jobs(created_at DESC, job_id DESC);
                 """
             )
 
@@ -171,3 +191,35 @@ class SQLiteJobRecordStore:
             input_payload=str(row["input_payload"]) if row["input_payload"] else None,
             metadata=str(row["metadata"]) if row["metadata"] else None,
         ).to_model()
+
+    def list_jobs(self, *, limit: int) -> list[JobRecordResponse]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  job_id,
+                  client_id,
+                  workflow_key,
+                  status,
+                  created_at,
+                  input_payload,
+                  metadata
+                FROM workflow_jobs
+                ORDER BY created_at DESC, job_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [
+            StoredJobRecord(
+                job_id=str(row["job_id"]),
+                client_id=str(row["client_id"]),
+                workflow_key=str(row["workflow_key"]),
+                status=str(row["status"]),
+                created_at=str(row["created_at"]),
+                input_payload=str(row["input_payload"]) if row["input_payload"] else None,
+                metadata=str(row["metadata"]) if row["metadata"] else None,
+            ).to_model()
+            for row in rows
+        ]

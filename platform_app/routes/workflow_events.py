@@ -6,7 +6,8 @@ import time
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from platform_app.admission_policy import SQLiteAdmissionPolicyStore
 from platform_app.auth import APIPrincipal
@@ -19,6 +20,9 @@ from platform_app.deps import (
     get_workflow_event_store,
 )
 from platform_app.dispatch_records import (
+    CALLBACK_STATUS_FAILED,
+    CALLBACK_STATUS_IN_PROGRESS,
+    CALLBACK_STATUS_SUCCESS,
     DISPATCH_STATUS_FAILED,
     DISPATCH_STATUS_SENT,
     DispatchListResponse,
@@ -27,8 +31,16 @@ from platform_app.dispatch_records import (
     RunnerDispatchError,
     RunnerDispatcher,
     SQLiteDispatchRecordStore,
+    hash_callback_token,
 )
-from platform_app.job_records import JobCreateRequest, JobRecordResponse, SQLiteJobRecordStore
+from platform_app.job_records import (
+    JobCreateRequest,
+    JobListItemResponse,
+    JobListResponse,
+    JobRecordResponse,
+    INITIAL_JOB_STATUS,
+    SQLiteJobRecordStore,
+)
 from platform_app.workflow_events import (
     JobStateProjectionResponse,
     WorkflowEventIngestResponse,
@@ -39,6 +51,47 @@ from platform_app.workflow_events import (
 )
 
 router = APIRouter(prefix="/v1/platform/workflows")
+
+CALLBACK_SOURCE = "runner_callback"
+CALLBACK_STATUS_TO_EVENT_STATUS = {
+    CALLBACK_STATUS_IN_PROGRESS: "running",
+    CALLBACK_STATUS_SUCCESS: "succeeded",
+    CALLBACK_STATUS_FAILED: "failed",
+}
+
+
+class WorkflowDispatchCallbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str = Field(min_length=1)
+    dispatch_id: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    occurred_at: datetime
+    result_summary: dict[str, object] | None = None
+
+
+class WorkflowDispatchCallbackResponse(BaseModel):
+    status: str
+    outcome: str
+    job_id: str
+    dispatch_id: str
+    current_status: str
+    raw_status: str
+    occurred_at: str
+
+
+def _projection_from_job_record(record: JobRecordResponse) -> JobStateProjectionResponse:
+    return JobStateProjectionResponse(
+        job_id=record.job_id,
+        current_status=record.status,
+        raw_status=record.status,
+        execution_id=None,
+        client_id=record.client_id,
+        workflow_key=record.workflow_key,
+        received_at=record.created_at,
+        source="job_admission" if record.status == INITIAL_JOB_STATUS else None,
+        event_count=0,
+    )
 
 
 def _record_observability(request: Request, route: str, status_code: int, start: float) -> None:
@@ -58,9 +111,36 @@ def intake_workflow_event(
     request: Request,
     principal: APIPrincipal = Depends(get_request_principal),
     store: SQLiteWorkflowEventStore = Depends(get_workflow_event_store),
+    job_store: SQLiteJobRecordStore = Depends(get_job_record_store),
 ) -> WorkflowEventIngestResponse:
     del principal
     start = time.perf_counter()
+    job = job_store.get_job(body.job_id)
+    if job is None:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/events",
+            status_code=status.HTTP_404_NOT_FOUND,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job record not found: {body.job_id}",
+        )
+    if job.client_id != body.client_id or job.workflow_key != body.workflow_key:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/events",
+            status_code=status.HTTP_409_CONFLICT,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Workflow event does not match admitted job contract for "
+                f"{body.job_id}"
+            ),
+        )
     record = store.append_event(body)
     _record_observability(
         request,
@@ -76,10 +156,22 @@ def lookup_workflow_events(
     job_id: str,
     request: Request,
     principal: APIPrincipal = Depends(get_request_principal),
+    job_store: SQLiteJobRecordStore = Depends(get_job_record_store),
     store: SQLiteWorkflowEventStore = Depends(get_workflow_event_store),
 ) -> WorkflowEventLookupResponse:
     del principal
     start = time.perf_counter()
+    if job_store.get_job(job_id) is None:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/events",
+            status_code=status.HTTP_404_NOT_FOUND,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job record not found: {job_id}",
+        )
     records = store.list_by_job_id(job_id)
     _record_observability(
         request,
@@ -95,12 +187,13 @@ def lookup_projected_job_state(
     job_id: str,
     request: Request,
     principal: APIPrincipal = Depends(get_request_principal),
+    job_store: SQLiteJobRecordStore = Depends(get_job_record_store),
     store: SQLiteWorkflowEventStore = Depends(get_workflow_event_store),
 ) -> JobStateProjectionResponse:
     del principal
     start = time.perf_counter()
-    projection = project_job_state(store.list_by_job_id(job_id))
-    if projection is None:
+    job = job_store.get_job(job_id)
+    if job is None:
         _record_observability(
             request,
             route="/v1/platform/workflows/jobs/{job_id}",
@@ -111,6 +204,9 @@ def lookup_projected_job_state(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job not found: {job_id}",
         )
+    projection = project_job_state(store.list_by_job_id(job_id))
+    if projection is None:
+        projection = _projection_from_job_record(job)
 
     _record_observability(
         request,
@@ -119,6 +215,41 @@ def lookup_projected_job_state(
         start=start,
     )
     return projection
+
+
+@router.get("/jobs", response_model=JobListResponse)
+def list_jobs(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    principal: APIPrincipal = Depends(get_request_principal),
+    job_store: SQLiteJobRecordStore = Depends(get_job_record_store),
+    event_store: SQLiteWorkflowEventStore = Depends(get_workflow_event_store),
+) -> JobListResponse:
+    del principal
+    start = time.perf_counter()
+    records = job_store.list_jobs(limit=limit)
+    jobs: list[JobListItemResponse] = []
+    for record in records:
+        projection = project_job_state(event_store.list_by_job_id(record.job_id))
+        jobs.append(
+            JobListItemResponse(
+                job_id=record.job_id,
+                client_id=record.client_id,
+                workflow_key=record.workflow_key,
+                admission_status=record.status,
+                current_status=projection.current_status if projection is not None else record.status,
+                raw_status=projection.raw_status if projection is not None else None,
+                created_at=record.created_at,
+                latest_received_at=projection.received_at if projection is not None else None,
+            )
+        )
+    _record_observability(
+        request,
+        route="/v1/platform/workflows/jobs",
+        status_code=status.HTTP_200_OK,
+        start=start,
+    )
+    return JobListResponse(count=len(jobs), jobs=jobs)
 
 
 @router.post("/jobs", status_code=status.HTTP_201_CREATED, response_model=JobRecordResponse)
@@ -193,7 +324,20 @@ def dispatch_job_to_runner(
     )
 
     try:
-        response_code = dispatcher.dispatch(job, body.payload)
+        callback_token = dispatcher.issue_callback_token(
+            job_id=job.job_id,
+            dispatch_id=pending.dispatch_id,
+        )
+        dispatch_store.set_callback_token_hash(
+            dispatch_id=pending.dispatch_id,
+            callback_token_hash=hash_callback_token(callback_token),
+        )
+        response_code = dispatcher.dispatch(
+            job,
+            body.payload,
+            dispatch_id=pending.dispatch_id,
+            callback_token=callback_token,
+        )
     except RunnerDispatchError as exc:
         finalized = dispatch_store.finalize_dispatch(
             dispatch_id=pending.dispatch_id,
@@ -245,6 +389,178 @@ def dispatch_job_to_runner(
         start=start,
     )
     return DispatchResult(dispatch=finalized)
+
+
+@router.post(
+    "/jobs/{job_id}/callback",
+    response_model=WorkflowDispatchCallbackResponse,
+)
+def receive_job_callback(
+    job_id: str,
+    body: WorkflowDispatchCallbackRequest,
+    request: Request,
+    x_flowbiz_callback_token: str | None = Header(default=None, alias="X-FlowBiz-Callback-Token"),
+    job_store: SQLiteJobRecordStore = Depends(get_job_record_store),
+    dispatch_store: SQLiteDispatchRecordStore = Depends(get_dispatch_record_store),
+    event_store: SQLiteWorkflowEventStore = Depends(get_workflow_event_store),
+) -> WorkflowDispatchCallbackResponse:
+    start = time.perf_counter()
+    if x_flowbiz_callback_token is None:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-FlowBiz-Callback-Token",
+        )
+    if body.job_id != job_id:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_409_CONFLICT,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Callback job_id does not match route job_id",
+        )
+
+    if body.status not in CALLBACK_STATUS_TO_EVENT_STATUS:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unsupported callback status",
+        )
+
+    job = job_store.get_job(job_id)
+    if job is None:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_404_NOT_FOUND,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job record not found: {job_id}",
+        )
+
+    if not dispatch_store.verify_callback_token(
+        dispatch_id=body.dispatch_id,
+        provided_token=x_flowbiz_callback_token,
+    ):
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid callback token",
+        )
+
+    callback_received_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    callback_occurred_at = body.occurred_at.astimezone(timezone.utc).isoformat(timespec="milliseconds")
+
+    try:
+        outcome, dispatch = dispatch_store.apply_callback(
+            dispatch_id=body.dispatch_id,
+            job_id=job_id,
+            callback_status=body.status,
+            callback_occurred_at=callback_occurred_at,
+            callback_received_at=callback_received_at,
+        )
+    except KeyError as exc:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_404_NOT_FOUND,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_409_CONFLICT,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    if outcome == "stale":
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_409_CONFLICT,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Stale callback rejected",
+        )
+    if outcome == "invalid_transition":
+        _record_observability(
+            request,
+            route="/v1/platform/workflows/jobs/{job_id}/callback",
+            status_code=status.HTTP_409_CONFLICT,
+            start=start,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Invalid callback transition rejected",
+        )
+
+    event_status = CALLBACK_STATUS_TO_EVENT_STATUS[body.status]
+    if outcome == "accepted":
+        event_store.append_event(
+            WorkflowEventIngestRequest.model_validate(
+                {
+                    "job_id": job_id,
+                    "client_id": job.client_id,
+                    "workflow_key": job.workflow_key,
+                    "status": event_status,
+                    "source": CALLBACK_SOURCE,
+                    "dispatch_id": body.dispatch_id,
+                    "callback_status": body.status,
+                    "occurred_at": callback_occurred_at,
+                    "result_summary": body.result_summary,
+                }
+            )
+        )
+
+    projection = project_job_state(event_store.list_by_job_id(job_id))
+    current_status = projection.current_status if projection is not None else job.status
+    raw_status = projection.raw_status if projection is not None else event_status
+    _record_observability(
+        request,
+        route="/v1/platform/workflows/jobs/{job_id}/callback",
+        status_code=status.HTTP_200_OK,
+        start=start,
+    )
+    return WorkflowDispatchCallbackResponse(
+        status="ok",
+        outcome=outcome,
+        job_id=job_id,
+        dispatch_id=dispatch.dispatch_id,
+        current_status=current_status,
+        raw_status=raw_status,
+        occurred_at=callback_occurred_at,
+    )
 
 
 @router.get(

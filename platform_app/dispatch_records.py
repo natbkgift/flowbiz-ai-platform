@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from hmac import compare_digest
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import json
 from pathlib import Path
 import sqlite3
@@ -20,6 +23,9 @@ from platform_app.job_records import JobRecordResponse
 DISPATCH_STATUS_PENDING = "pending"
 DISPATCH_STATUS_SENT = "sent"
 DISPATCH_STATUS_FAILED = "failed"
+CALLBACK_STATUS_IN_PROGRESS = "in_progress"
+CALLBACK_STATUS_SUCCESS = "success"
+CALLBACK_STATUS_FAILED = "failed"
 
 
 class DispatchRequest(BaseModel):
@@ -40,6 +46,9 @@ class DispatchRecordResponse(BaseModel):
     error: str | None
     created_at: str
     sent_at: str | None
+    callback_status: str | None = None
+    callback_occurred_at: str | None = None
+    callback_received_at: str | None = None
 
 
 class DispatchListResponse(BaseModel):
@@ -67,6 +76,10 @@ class StoredDispatchRecord:
     error: str | None
     created_at: str
     sent_at: str | None
+    callback_token_hash: str | None = None
+    callback_status: str | None = None
+    callback_occurred_at: str | None = None
+    callback_received_at: str | None = None
 
     def to_model(self) -> DispatchRecordResponse:
         return DispatchRecordResponse(
@@ -81,6 +94,9 @@ class StoredDispatchRecord:
             error=self.error,
             created_at=self.created_at,
             sent_at=self.sent_at,
+            callback_status=self.callback_status,
+            callback_occurred_at=self.callback_occurred_at,
+            callback_received_at=self.callback_received_at,
         )
 
 
@@ -113,17 +129,41 @@ class SQLiteDispatchRecordStore:
                   workflow_key TEXT NOT NULL,
                   target_url TEXT NOT NULL,
                   payload TEXT NOT NULL,
+                  callback_token_hash TEXT NULL,
                   status TEXT NOT NULL,
                   response_code INTEGER NULL,
                   error TEXT NULL,
                   created_at TEXT NOT NULL,
-                  sent_at TEXT NULL
+                  sent_at TEXT NULL,
+                  callback_status TEXT NULL,
+                  callback_occurred_at TEXT NULL,
+                  callback_received_at TEXT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_workflow_dispatches_job_id
                   ON workflow_dispatches(job_id, created_at, dispatch_id);
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(workflow_dispatches)").fetchall()
+            }
+            if "callback_token_hash" not in columns:
+                conn.execute(
+                    "ALTER TABLE workflow_dispatches ADD COLUMN callback_token_hash TEXT NULL"
+                )
+            if "callback_status" not in columns:
+                conn.execute(
+                    "ALTER TABLE workflow_dispatches ADD COLUMN callback_status TEXT NULL"
+                )
+            if "callback_occurred_at" not in columns:
+                conn.execute(
+                    "ALTER TABLE workflow_dispatches ADD COLUMN callback_occurred_at TEXT NULL"
+                )
+            if "callback_received_at" not in columns:
+                conn.execute(
+                    "ALTER TABLE workflow_dispatches ADD COLUMN callback_received_at TEXT NULL"
+                )
 
     def create_pending_dispatch(
         self,
@@ -131,6 +171,7 @@ class SQLiteDispatchRecordStore:
         job: JobRecordResponse,
         target_url: str,
         payload: dict[str, Any],
+        callback_token_hash: str | None = None,
     ) -> DispatchRecordResponse:
         dispatch_id = str(uuid4())
         created_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
@@ -147,13 +188,17 @@ class SQLiteDispatchRecordStore:
                       workflow_key,
                       target_url,
                       payload,
+                      callback_token_hash,
                       status,
                       response_code,
                       error,
                       created_at,
-                      sent_at
+                      sent_at,
+                      callback_status,
+                      callback_occurred_at,
+                      callback_received_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         dispatch_id,
@@ -162,10 +207,14 @@ class SQLiteDispatchRecordStore:
                         job.workflow_key,
                         target_url,
                         payload_json,
+                        callback_token_hash,
                         DISPATCH_STATUS_PENDING,
                         None,
                         None,
                         created_at,
+                        None,
+                        None,
+                        None,
                         None,
                     ),
                 )
@@ -177,12 +226,30 @@ class SQLiteDispatchRecordStore:
             workflow_key=job.workflow_key,
             target_url=target_url,
             payload=payload_json,
+            callback_token_hash=callback_token_hash,
             status=DISPATCH_STATUS_PENDING,
             response_code=None,
             error=None,
             created_at=created_at,
             sent_at=None,
+            callback_status=None,
+            callback_occurred_at=None,
+            callback_received_at=None,
         ).to_model()
+
+    def set_callback_token_hash(self, *, dispatch_id: str, callback_token_hash: str) -> None:
+        with self._lock:
+            with self._connect() as conn:
+                updated = conn.execute(
+                    """
+                    UPDATE workflow_dispatches
+                    SET callback_token_hash = ?
+                    WHERE dispatch_id = ?
+                    """,
+                    (callback_token_hash, dispatch_id),
+                )
+                if updated.rowcount == 0:
+                    raise KeyError(f"Dispatch record not found: {dispatch_id}")
 
     def finalize_dispatch(
         self,
@@ -212,11 +279,15 @@ class SQLiteDispatchRecordStore:
                       workflow_key,
                       target_url,
                       payload,
+                      callback_token_hash,
                       status,
                       response_code,
                       error,
                       created_at,
-                      sent_at
+                      sent_at,
+                      callback_status,
+                      callback_occurred_at,
+                      callback_received_at
                     FROM workflow_dispatches
                     WHERE dispatch_id = ?
                     """,
@@ -233,11 +304,15 @@ class SQLiteDispatchRecordStore:
             workflow_key=str(row["workflow_key"]),
             target_url=str(row["target_url"]),
             payload=str(row["payload"]),
+            callback_token_hash=str(row["callback_token_hash"]) if row["callback_token_hash"] else None,
             status=str(row["status"]),
             response_code=int(row["response_code"]) if row["response_code"] is not None else None,
             error=str(row["error"]) if row["error"] else None,
             created_at=str(row["created_at"]),
             sent_at=str(row["sent_at"]) if row["sent_at"] else None,
+            callback_status=str(row["callback_status"]) if row["callback_status"] else None,
+            callback_occurred_at=str(row["callback_occurred_at"]) if row["callback_occurred_at"] else None,
+            callback_received_at=str(row["callback_received_at"]) if row["callback_received_at"] else None,
         ).to_model()
 
     def list_by_job_id(self, job_id: str) -> list[DispatchRecordResponse]:
@@ -251,11 +326,15 @@ class SQLiteDispatchRecordStore:
                   workflow_key,
                   target_url,
                   payload,
+                  callback_token_hash,
                   status,
                   response_code,
                   error,
                   created_at,
-                  sent_at
+                  sent_at,
+                  callback_status,
+                  callback_occurred_at,
+                  callback_received_at
                 FROM workflow_dispatches
                 WHERE job_id = ?
                 ORDER BY created_at ASC, dispatch_id ASC
@@ -271,14 +350,199 @@ class SQLiteDispatchRecordStore:
                 workflow_key=str(row["workflow_key"]),
                 target_url=str(row["target_url"]),
                 payload=str(row["payload"]),
+                callback_token_hash=str(row["callback_token_hash"]) if row["callback_token_hash"] else None,
                 status=str(row["status"]),
                 response_code=int(row["response_code"]) if row["response_code"] is not None else None,
                 error=str(row["error"]) if row["error"] else None,
                 created_at=str(row["created_at"]),
                 sent_at=str(row["sent_at"]) if row["sent_at"] else None,
+                callback_status=str(row["callback_status"]) if row["callback_status"] else None,
+                callback_occurred_at=str(row["callback_occurred_at"]) if row["callback_occurred_at"] else None,
+                callback_received_at=str(row["callback_received_at"]) if row["callback_received_at"] else None,
             ).to_model()
             for row in rows
         ]
+
+    def get_dispatch(self, dispatch_id: str) -> DispatchRecordResponse | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                  dispatch_id,
+                  job_id,
+                  client_id,
+                  workflow_key,
+                  target_url,
+                  payload,
+                  callback_token_hash,
+                  status,
+                  response_code,
+                  error,
+                  created_at,
+                  sent_at,
+                  callback_status,
+                  callback_occurred_at,
+                  callback_received_at
+                FROM workflow_dispatches
+                WHERE dispatch_id = ?
+                """,
+                (dispatch_id,),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return StoredDispatchRecord(
+            dispatch_id=str(row["dispatch_id"]),
+            job_id=str(row["job_id"]),
+            client_id=str(row["client_id"]),
+            workflow_key=str(row["workflow_key"]),
+            target_url=str(row["target_url"]),
+            payload=str(row["payload"]),
+            callback_token_hash=str(row["callback_token_hash"]) if row["callback_token_hash"] else None,
+            status=str(row["status"]),
+            response_code=int(row["response_code"]) if row["response_code"] is not None else None,
+            error=str(row["error"]) if row["error"] else None,
+            created_at=str(row["created_at"]),
+            sent_at=str(row["sent_at"]) if row["sent_at"] else None,
+            callback_status=str(row["callback_status"]) if row["callback_status"] else None,
+            callback_occurred_at=str(row["callback_occurred_at"]) if row["callback_occurred_at"] else None,
+            callback_received_at=str(row["callback_received_at"]) if row["callback_received_at"] else None,
+        ).to_model()
+
+    def verify_callback_token(self, *, dispatch_id: str, provided_token: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT callback_token_hash FROM workflow_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+        if row is None or not row["callback_token_hash"]:
+            return False
+        expected = str(row["callback_token_hash"])
+        return compare_digest(expected, hash_callback_token(provided_token))
+
+    def apply_callback(
+        self,
+        *,
+        dispatch_id: str,
+        job_id: str,
+        callback_status: str,
+        callback_occurred_at: str,
+        callback_received_at: str,
+    ) -> tuple[str, DispatchRecordResponse]:
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    SELECT
+                      dispatch_id,
+                      job_id,
+                      client_id,
+                      workflow_key,
+                      target_url,
+                      payload,
+                      callback_token_hash,
+                      status,
+                      response_code,
+                      error,
+                      created_at,
+                      sent_at,
+                      callback_status,
+                      callback_occurred_at,
+                      callback_received_at
+                    FROM workflow_dispatches
+                    WHERE dispatch_id = ?
+                    """,
+                    (dispatch_id,),
+                ).fetchone()
+
+                if row is None:
+                    raise KeyError(f"Dispatch record not found: {dispatch_id}")
+                if str(row["job_id"]) != job_id:
+                    raise ValueError(
+                        f"Dispatch record {dispatch_id} does not belong to job {job_id}"
+                    )
+                if str(row["status"]) != DISPATCH_STATUS_SENT:
+                    raise ValueError(
+                        f"Dispatch record {dispatch_id} is not in a callback-eligible state"
+                    )
+
+                current_status = str(row["callback_status"]) if row["callback_status"] else None
+                current_occurred_at = (
+                    str(row["callback_occurred_at"]) if row["callback_occurred_at"] else None
+                )
+
+                if current_status == callback_status and current_occurred_at == callback_occurred_at:
+                    outcome = "duplicate"
+                elif current_occurred_at and callback_occurred_at < current_occurred_at:
+                    outcome = "stale"
+                elif current_status in {CALLBACK_STATUS_SUCCESS, CALLBACK_STATUS_FAILED}:
+                    outcome = "invalid_transition"
+                elif (
+                    current_occurred_at == callback_occurred_at
+                    and current_status is not None
+                    and current_status != callback_status
+                ):
+                    outcome = "invalid_transition"
+                else:
+                    conn.execute(
+                        """
+                        UPDATE workflow_dispatches
+                        SET callback_status = ?,
+                            callback_occurred_at = ?,
+                            callback_received_at = ?
+                        WHERE dispatch_id = ?
+                        """,
+                        (
+                            callback_status,
+                            callback_occurred_at,
+                            callback_received_at,
+                            dispatch_id,
+                        ),
+                    )
+                    outcome = "accepted"
+
+                refreshed = conn.execute(
+                    """
+                    SELECT
+                      dispatch_id,
+                      job_id,
+                      client_id,
+                      workflow_key,
+                      target_url,
+                      payload,
+                      callback_token_hash,
+                      status,
+                      response_code,
+                      error,
+                      created_at,
+                      sent_at,
+                      callback_status,
+                      callback_occurred_at,
+                      callback_received_at
+                    FROM workflow_dispatches
+                    WHERE dispatch_id = ?
+                    """,
+                    (dispatch_id,),
+                ).fetchone()
+
+        return outcome, StoredDispatchRecord(
+            dispatch_id=str(refreshed["dispatch_id"]),
+            job_id=str(refreshed["job_id"]),
+            client_id=str(refreshed["client_id"]),
+            workflow_key=str(refreshed["workflow_key"]),
+            target_url=str(refreshed["target_url"]),
+            payload=str(refreshed["payload"]),
+            callback_token_hash=str(refreshed["callback_token_hash"]) if refreshed["callback_token_hash"] else None,
+            status=str(refreshed["status"]),
+            response_code=int(refreshed["response_code"]) if refreshed["response_code"] is not None else None,
+            error=str(refreshed["error"]) if refreshed["error"] else None,
+            created_at=str(refreshed["created_at"]),
+            sent_at=str(refreshed["sent_at"]) if refreshed["sent_at"] else None,
+            callback_status=str(refreshed["callback_status"]) if refreshed["callback_status"] else None,
+            callback_occurred_at=str(refreshed["callback_occurred_at"]) if refreshed["callback_occurred_at"] else None,
+            callback_received_at=str(refreshed["callback_received_at"]) if refreshed["callback_received_at"] else None,
+        ).to_model()
 
 
 class RunnerDispatchError(RuntimeError):
@@ -294,12 +558,14 @@ class RunnerDispatcher:
         self,
         *,
         target_url: str,
-        callback_url: str,
+        callback_base_url: str,
+        callback_shared_secret: str,
         timeout_seconds: float,
         client: httpx.Client | None = None,
     ) -> None:
         self._target_url = target_url
-        self._callback_url = callback_url
+        self._callback_base_url = callback_base_url
+        self._callback_shared_secret = callback_shared_secret
         self._timeout_seconds = timeout_seconds
         self._client = client
 
@@ -308,16 +574,37 @@ class RunnerDispatcher:
         return self._target_url
 
     @property
-    def callback_url(self) -> str:
-        return self._callback_url
+    def callback_shared_secret(self) -> str:
+        return self._callback_shared_secret
 
-    def dispatch(self, job: JobRecordResponse, payload: dict[str, Any]) -> int:
+    def callback_url_for(self, job_id: str) -> str:
+        return f"{self._callback_base_url}/v1/platform/workflows/jobs/{job_id}/callback"
+
+    def issue_callback_token(self, *, job_id: str, dispatch_id: str) -> str:
+        return issue_callback_token(
+            self._callback_shared_secret,
+            job_id=job_id,
+            dispatch_id=dispatch_id,
+        )
+
+    def dispatch(
+        self,
+        job: JobRecordResponse,
+        payload: dict[str, Any],
+        *,
+        dispatch_id: str,
+        callback_token: str,
+    ) -> int:
         body = {
             "job_id": job.job_id,
+            "dispatch_id": dispatch_id,
             "client_id": job.client_id,
             "workflow_key": job.workflow_key,
             "payload": payload,
-            "callback_url": self._callback_url,
+            "callback": {
+                "url": self.callback_url_for(job.job_id),
+                "token": callback_token,
+            },
         }
 
         own_client = False
@@ -350,9 +637,25 @@ def build_runner_dispatcher(settings: PlatformSettings) -> RunnerDispatcher:
     if not target_url:
         raise ValueError("PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL is not configured")
     callback_base = settings.platform_public_base_url.rstrip("/")
-    callback_url = f"{callback_base}/v1/platform/workflows/events"
+    callback_shared_secret = settings.workflow_callback_shared_secret.strip()
+    if not callback_shared_secret:
+        raise ValueError("PLATFORM_WORKFLOW_CALLBACK_SHARED_SECRET is not configured")
     return RunnerDispatcher(
         target_url=target_url,
-        callback_url=callback_url,
+        callback_base_url=callback_base,
+        callback_shared_secret=callback_shared_secret,
         timeout_seconds=settings.llm_timeout_seconds,
     )
+
+
+def issue_callback_token(shared_secret: str, *, job_id: str, dispatch_id: str) -> str:
+    message = f"{job_id}:{dispatch_id}".encode("utf-8")
+    return hmac.new(
+        shared_secret.encode("utf-8"),
+        message,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def hash_callback_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

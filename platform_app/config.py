@@ -30,6 +30,7 @@ class PlatformSettings(BaseSettings):
         default="platform_data/workflow_events.db"
     )
     workflow_runner_dispatch_url: str = Field(default="")
+    workflow_callback_shared_secret: str = Field(default="")
     platform_public_base_url: str = Field(default="http://localhost:8100")
 
     rate_limit_mode: str = "noop"

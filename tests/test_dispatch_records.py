@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -45,12 +47,33 @@ def _reset_platform_caches():
 class _FakeRunnerDispatcher:
     def __init__(self, behavior: str = "success") -> None:
         self.target_url = "https://runner.example/dispatch"
-        self.callback_url = "https://platform.example/v1/platform/workflows/events"
+        self.callback_shared_secret = "callback-secret"
         self.behavior = behavior
         self.calls: list[dict[str, object]] = []
 
-    def dispatch(self, job, payload: dict[str, object]) -> int:
-        self.calls.append({"job_id": job.job_id, "payload": payload})
+    def callback_url_for(self, job_id: str) -> str:
+        return f"https://platform.example/v1/platform/workflows/jobs/{job_id}/callback"
+
+    def issue_callback_token(self, *, job_id: str, dispatch_id: str) -> str:
+        return f"token:{job_id}:{dispatch_id}"
+
+    def dispatch(
+        self,
+        job,
+        payload: dict[str, object],
+        *,
+        dispatch_id: str,
+        callback_token: str,
+    ) -> int:
+        self.calls.append(
+            {
+                "job_id": job.job_id,
+                "payload": payload,
+                "dispatch_id": dispatch_id,
+                "callback_url": self.callback_url_for(job.job_id),
+                "callback_token": callback_token,
+            }
+        )
         if self.behavior == "timeout":
             raise RunnerDispatchError("Runner dispatch timed out")
         if self.behavior == "500":
@@ -80,6 +103,10 @@ def _client(
     monkeypatch.setenv(
         "PLATFORM_PLATFORM_PUBLIC_BASE_URL",
         "https://platform.example",
+    )
+    monkeypatch.setenv(
+        "PLATFORM_WORKFLOW_CALLBACK_SHARED_SECRET",
+        "callback-secret",
     )
     _clear_caches()
     app = create_app()
@@ -125,6 +152,9 @@ def test_dispatch_success_persists_sent_record(monkeypatch, tmp_path) -> None:
     assert data["dispatch"]["response_code"] == 202
     assert data["dispatch"]["target_url"] == "https://runner.example/dispatch"
     assert dispatcher.calls[0]["job_id"] == job_id
+    assert dispatcher.calls[0]["dispatch_id"] == data["dispatch"]["dispatch_id"]
+    assert dispatcher.calls[0]["callback_url"] == f"https://platform.example/v1/platform/workflows/jobs/{job_id}/callback"
+    assert dispatcher.calls[0]["callback_token"] == f"token:{job_id}:{data['dispatch']['dispatch_id']}"
 
     listed = client.get(f"/v1/platform/workflows/jobs/{job_id}/dispatches")
     assert listed.status_code == 200
@@ -224,3 +254,172 @@ def test_multiple_dispatch_attempts_are_listed_for_job(monkeypatch, tmp_path) ->
     assert data["count"] == 2
     assert [item["payload"]["attempt"] for item in data["dispatches"]] == [1, 2]
     assert all(item["job_id"] == job_id for item in data["dispatches"])
+
+
+def test_callback_accepts_valid_token_updates_projection_and_job_list(monkeypatch, tmp_path) -> None:
+    dispatcher = _FakeRunnerDispatcher()
+    client = _client(monkeypatch, tmp_path, dispatcher=dispatcher)
+    job_id = _create_job(client)
+
+    dispatch = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/dispatch",
+        json={"payload": {"contact_id": "c-123"}},
+    )
+    assert dispatch.status_code == 200
+    dispatch_data = dispatch.json()["dispatch"]
+    dispatch_id = dispatch_data["dispatch_id"]
+    callback_token = dispatcher.calls[0]["callback_token"]
+    occurred_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+    callback = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/callback",
+        json={
+            "job_id": job_id,
+            "dispatch_id": dispatch_id,
+            "status": "success",
+            "occurred_at": occurred_at,
+            "result_summary": {"records_processed": 12},
+        },
+        headers={"X-FlowBiz-Callback-Token": str(callback_token)},
+    )
+    assert callback.status_code == 200
+    callback_data = callback.json()
+    assert callback_data["outcome"] == "accepted"
+    assert callback_data["current_status"] == "succeeded"
+    assert callback_data["raw_status"] == "succeeded"
+
+    projection = client.get(f"/v1/platform/workflows/jobs/{job_id}")
+    assert projection.status_code == 200
+    assert projection.json()["current_status"] == "succeeded"
+    assert projection.json()["source"] == "runner_callback"
+
+    listing = client.get("/v1/platform/workflows/jobs")
+    assert listing.status_code == 200
+    jobs = {item["job_id"]: item for item in listing.json()["jobs"]}
+    assert jobs[job_id]["current_status"] == "succeeded"
+    assert jobs[job_id]["raw_status"] == "succeeded"
+
+
+def test_duplicate_callback_is_idempotent(monkeypatch, tmp_path) -> None:
+    dispatcher = _FakeRunnerDispatcher()
+    client = _client(monkeypatch, tmp_path, dispatcher=dispatcher)
+    job_id = _create_job(client)
+
+    dispatch = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/dispatch",
+        json={"payload": {"contact_id": "c-123"}},
+    )
+    dispatch_id = dispatch.json()["dispatch"]["dispatch_id"]
+    callback_token = str(dispatcher.calls[0]["callback_token"])
+    occurred_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    body = {
+        "job_id": job_id,
+        "dispatch_id": dispatch_id,
+        "status": "in_progress",
+        "occurred_at": occurred_at,
+    }
+
+    first = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/callback",
+        json=body,
+        headers={"X-FlowBiz-Callback-Token": callback_token},
+    )
+    second = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/callback",
+        json=body,
+        headers={"X-FlowBiz-Callback-Token": callback_token},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["outcome"] == "duplicate"
+
+    events = client.get(f"/v1/platform/workflows/jobs/{job_id}/events")
+    assert events.status_code == 200
+    assert events.json()["count"] == 1
+
+
+def test_callback_rejects_invalid_token(monkeypatch, tmp_path) -> None:
+    dispatcher = _FakeRunnerDispatcher()
+    client = _client(monkeypatch, tmp_path, dispatcher=dispatcher)
+    job_id = _create_job(client)
+    dispatch = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/dispatch",
+        json={"payload": {}},
+    )
+    dispatch_id = dispatch.json()["dispatch"]["dispatch_id"]
+
+    callback = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/callback",
+        json={
+            "job_id": job_id,
+            "dispatch_id": dispatch_id,
+            "status": "success",
+            "occurred_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        },
+        headers={"X-FlowBiz-Callback-Token": "wrong-token"},
+    )
+    assert callback.status_code == 401
+    assert callback.json()["detail"] == "Invalid callback token"
+
+
+def test_callback_rejects_stale_update(monkeypatch, tmp_path) -> None:
+    dispatcher = _FakeRunnerDispatcher()
+    client = _client(monkeypatch, tmp_path, dispatcher=dispatcher)
+    job_id = _create_job(client)
+    dispatch = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/dispatch",
+        json={"payload": {}},
+    )
+    dispatch_id = dispatch.json()["dispatch"]["dispatch_id"]
+    callback_token = str(dispatcher.calls[0]["callback_token"])
+    newer = datetime.now(timezone.utc)
+    older = newer - timedelta(minutes=5)
+
+    accepted = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/callback",
+        json={
+            "job_id": job_id,
+            "dispatch_id": dispatch_id,
+            "status": "in_progress",
+            "occurred_at": newer.isoformat(timespec="milliseconds"),
+        },
+        headers={"X-FlowBiz-Callback-Token": callback_token},
+    )
+    stale = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/callback",
+        json={
+            "job_id": job_id,
+            "dispatch_id": dispatch_id,
+            "status": "in_progress",
+            "occurred_at": older.isoformat(timespec="milliseconds"),
+        },
+        headers={"X-FlowBiz-Callback-Token": callback_token},
+    )
+
+    assert accepted.status_code == 200
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == "Stale callback rejected"
+
+
+def test_callback_rejects_malformed_payload(monkeypatch, tmp_path) -> None:
+    dispatcher = _FakeRunnerDispatcher()
+    client = _client(monkeypatch, tmp_path, dispatcher=dispatcher)
+    job_id = _create_job(client)
+    dispatch = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/dispatch",
+        json={"payload": {}},
+    )
+    dispatch_id = dispatch.json()["dispatch"]["dispatch_id"]
+    callback_token = str(dispatcher.calls[0]["callback_token"])
+
+    response = client.post(
+        f"/v1/platform/workflows/jobs/{job_id}/callback",
+        json={
+            "job_id": job_id,
+            "dispatch_id": dispatch_id,
+            "status": "unsupported",
+        },
+        headers={"X-FlowBiz-Callback-Token": callback_token},
+    )
+    assert response.status_code == 422

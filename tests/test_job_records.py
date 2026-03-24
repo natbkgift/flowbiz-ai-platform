@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -167,3 +169,87 @@ def test_job_record_and_event_ledger_coexist_safely(monkeypatch, tmp_path) -> No
     assert record.json()["status"] == "received"
     assert projection.status_code == 200
     assert projection.json()["current_status"] == "running"
+
+
+def test_job_list_returns_latest_first_with_projection_summary(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    first = client.post(
+        "/v1/platform/workflows/jobs",
+        json={
+            "client_id": "client-a",
+            "workflow_key": "lead-enrichment",
+            "input_payload": {"secret": "do-not-list"},
+            "metadata": {"internal": True},
+        },
+    )
+    assert first.status_code == 201
+    time.sleep(0.02)
+    second = client.post(
+        "/v1/platform/workflows/jobs",
+        json={"client_id": "client-b", "workflow_key": "crm-sync"},
+    )
+    assert second.status_code == 201
+
+    first_job_id = first.json()["job_id"]
+    second_job_id = second.json()["job_id"]
+
+    event = client.post(
+        "/v1/platform/workflows/events",
+        json={
+            "job_id": first_job_id,
+            "client_id": "client-a",
+            "workflow_key": "lead-enrichment",
+            "status": "running",
+            "execution_id": "exec-001",
+        },
+    )
+    assert event.status_code == 201
+
+    listing = client.get("/v1/platform/workflows/jobs")
+    assert listing.status_code == 200
+    data = listing.json()
+    assert data["status"] == "ok"
+    assert data["count"] == 2
+    assert [item["job_id"] for item in data["jobs"]] == [second_job_id, first_job_id]
+    assert data["jobs"][0]["admission_status"] == "received"
+    assert data["jobs"][0]["current_status"] == "received"
+    assert data["jobs"][0]["raw_status"] is None
+    assert data["jobs"][1]["current_status"] == "running"
+    assert data["jobs"][1]["raw_status"] == "running"
+    assert "input_payload" not in data["jobs"][1]
+    assert "metadata" not in data["jobs"][1]
+
+
+def test_job_list_honors_limit(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    for idx in range(3):
+        response = client.post(
+            "/v1/platform/workflows/jobs",
+            json={"client_id": f"client-{idx}", "workflow_key": f"wf-{idx}"},
+        )
+        assert response.status_code == 201
+        time.sleep(0.02)
+
+    listing = client.get("/v1/platform/workflows/jobs?limit=2")
+    assert listing.status_code == 200
+    data = listing.json()
+    assert data["count"] == 2
+    assert len(data["jobs"]) == 2
+
+
+def test_job_list_requires_auth_when_enabled(monkeypatch, tmp_path) -> None:
+    auth_api_keys_json = (
+        '[{"key_id":"workflow-client","secret_hash":"'
+        + hash_api_key_secret("job-secret")
+        + '","scopes":[]}]'
+    )
+    client = _client(
+        monkeypatch,
+        tmp_path,
+        auth_mode="api_key",
+        auth_api_keys_json=auth_api_keys_json,
+    )
+
+    response = client.get("/v1/platform/workflows/jobs")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing X-API-Key"

@@ -53,10 +53,12 @@ storage design:
 runner request payload ขั้นต่ำ:
 
 - `job_id`
+- `dispatch_id`
 - `client_id`
 - `workflow_key`
 - `payload`
-- `callback_url`
+- `callback.url`
+- `callback.token`
 
 ## Dispatch Flow
 
@@ -72,6 +74,7 @@ runner request payload ขั้นต่ำ:
 - dispatch failure ไม่แก้ job status
 - ไม่มี retry/backoff ใน slice นี้
 - ไม่มี background processing
+- callback completion is handled by the separate controlled callback loop in Slice 9
 
 ## Files Changed
 

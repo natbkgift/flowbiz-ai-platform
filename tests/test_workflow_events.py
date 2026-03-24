@@ -56,6 +56,22 @@ def _client(
     return TestClient(create_app())
 
 
+def _create_job(
+    client: TestClient,
+    *,
+    client_id: str,
+    workflow_key: str,
+    headers: dict[str, str] | None = None,
+) -> str:
+    response = client.post(
+        "/v1/platform/workflows/jobs",
+        json={"client_id": client_id, "workflow_key": workflow_key},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    return response.json()["job_id"]
+
+
 def test_workflow_event_intake_persists_and_lookup_by_job_id(monkeypatch, tmp_path) -> None:
     auth_api_keys_json = (
         '[{"key_id":"workflow-callback","secret_hash":"'
@@ -69,8 +85,14 @@ def test_workflow_event_intake_persists_and_lookup_by_job_id(monkeypatch, tmp_pa
         auth_api_keys_json=auth_api_keys_json,
     )
     headers = {"X-API-Key": "workflow-callback:callback-secret"}
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+        headers=headers,
+    )
     payload = {
-        "job_id": "job-123",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "execution_id": "exec-001",
@@ -84,7 +106,7 @@ def test_workflow_event_intake_persists_and_lookup_by_job_id(monkeypatch, tmp_pa
     assert intake.status_code == 201
     intake_data = intake.json()
     assert intake_data["status"] == "accepted"
-    assert intake_data["record"]["job_id"] == "job-123"
+    assert intake_data["record"]["job_id"] == job_id
     assert intake_data["record"]["raw_payload"]["callback_type"] == "workflow.finished"
     assert intake_data["record"]["source"] == "n8n"
 
@@ -94,7 +116,7 @@ def test_workflow_event_intake_persists_and_lookup_by_job_id(monkeypatch, tmp_pa
             "SELECT job_id, client_id, workflow_key, execution_id, status, source FROM workflow_events"
         ).fetchone()
     assert row == (
-        "job-123",
+        job_id,
         "client-a",
         "lead-enrichment",
         "exec-001",
@@ -102,11 +124,11 @@ def test_workflow_event_intake_persists_and_lookup_by_job_id(monkeypatch, tmp_pa
         "n8n",
     )
 
-    lookup = client.get("/v1/platform/workflows/jobs/job-123/events", headers=headers)
+    lookup = client.get(f"/v1/platform/workflows/jobs/{job_id}/events", headers=headers)
     assert lookup.status_code == 200
     lookup_data = lookup.json()
     assert lookup_data["status"] == "ok"
-    assert lookup_data["job_id"] == "job-123"
+    assert lookup_data["job_id"] == job_id
     assert lookup_data["count"] == 1
     assert lookup_data["records"][0]["raw_payload"]["output_ref"]["artifact_id"] == "art-123"
 
@@ -123,8 +145,15 @@ def test_workflow_event_intake_rejects_missing_and_invalid_auth(monkeypatch, tmp
         auth_mode="api_key",
         auth_api_keys_json=auth_api_keys_json,
     )
+    headers = {"X-API-Key": "workflow-callback:callback-secret"}
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+        headers=headers,
+    )
     payload = {
-        "job_id": "job-123",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "completed",
@@ -145,23 +174,33 @@ def test_workflow_event_intake_rejects_missing_and_invalid_auth(monkeypatch, tmp
 
 def test_workflow_event_lookup_returns_multiple_records_for_job(monkeypatch, tmp_path) -> None:
     client = _client(monkeypatch, tmp_path)
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
+    other_job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
 
     first = {
-        "job_id": "job-lookup",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "queued",
         "sequence": 1,
     }
     second = {
-        "job_id": "job-lookup",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "running",
         "sequence": 2,
     }
     other = {
-        "job_id": "job-other",
+        "job_id": other_job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "completed",
@@ -171,7 +210,7 @@ def test_workflow_event_lookup_returns_multiple_records_for_job(monkeypatch, tmp
     assert client.post("/v1/platform/workflows/events", json=second).status_code == 201
     assert client.post("/v1/platform/workflows/events", json=other).status_code == 201
 
-    lookup = client.get("/v1/platform/workflows/jobs/job-lookup/events")
+    lookup = client.get(f"/v1/platform/workflows/jobs/{job_id}/events")
     assert lookup.status_code == 200
     data = lookup.json()
     assert data["count"] == 2
@@ -197,8 +236,13 @@ def test_workflow_event_intake_validation_failure_is_predictable(monkeypatch, tm
 
 def test_projected_job_state_visible_after_first_event(monkeypatch, tmp_path) -> None:
     client = _client(monkeypatch, tmp_path)
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
     payload = {
-        "job_id": "job-projection-1",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "queued",
@@ -207,11 +251,11 @@ def test_projected_job_state_visible_after_first_event(monkeypatch, tmp_path) ->
 
     assert client.post("/v1/platform/workflows/events", json=payload).status_code == 201
 
-    response = client.get("/v1/platform/workflows/jobs/job-projection-1")
+    response = client.get(f"/v1/platform/workflows/jobs/{job_id}")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["job_id"] == "job-projection-1"
+    assert data["job_id"] == job_id
     assert data["current_status"] == "accepted"
     assert data["raw_status"] == "queued"
     assert data["client_id"] == "client-a"
@@ -222,9 +266,14 @@ def test_projected_job_state_visible_after_first_event(monkeypatch, tmp_path) ->
 
 def test_projected_job_state_updates_with_later_events(monkeypatch, tmp_path) -> None:
     client = _client(monkeypatch, tmp_path)
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
 
     first = {
-        "job_id": "job-projection-2",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "execution_id": "exec-001",
@@ -232,13 +281,13 @@ def test_projected_job_state_updates_with_later_events(monkeypatch, tmp_path) ->
         "source": "n8n",
     }
     second = {
-        "job_id": "job-projection-2",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "running",
     }
     third = {
-        "job_id": "job-projection-2",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "completed",
@@ -249,7 +298,7 @@ def test_projected_job_state_updates_with_later_events(monkeypatch, tmp_path) ->
     assert client.post("/v1/platform/workflows/events", json=second).status_code == 201
     assert client.post("/v1/platform/workflows/events", json=third).status_code == 201
 
-    response = client.get("/v1/platform/workflows/jobs/job-projection-2")
+    response = client.get(f"/v1/platform/workflows/jobs/{job_id}")
     assert response.status_code == 200
     data = response.json()
     assert data["current_status"] == "succeeded"
@@ -261,8 +310,13 @@ def test_projected_job_state_updates_with_later_events(monkeypatch, tmp_path) ->
 
 def test_projected_job_state_unknown_status_is_safe(monkeypatch, tmp_path) -> None:
     client = _client(monkeypatch, tmp_path)
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
     payload = {
-        "job_id": "job-projection-3",
+        "job_id": job_id,
         "client_id": "client-a",
         "workflow_key": "lead-enrichment",
         "status": "paused_by_runner",
@@ -270,7 +324,7 @@ def test_projected_job_state_unknown_status_is_safe(monkeypatch, tmp_path) -> No
 
     assert client.post("/v1/platform/workflows/events", json=payload).status_code == 201
 
-    response = client.get("/v1/platform/workflows/jobs/job-projection-3")
+    response = client.get(f"/v1/platform/workflows/jobs/{job_id}")
     assert response.status_code == 200
     data = response.json()
     assert data["current_status"] == "unknown"
@@ -283,6 +337,25 @@ def test_projected_job_state_returns_404_for_unknown_job(monkeypatch, tmp_path) 
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Job not found: job-missing"
+
+
+def test_projected_job_state_falls_back_to_admission_record(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
+
+    response = client.get(f"/v1/platform/workflows/jobs/{job_id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["job_id"] == job_id
+    assert data["current_status"] == "received"
+    assert data["raw_status"] == "received"
+    assert data["source"] == "job_admission"
+    assert data["event_count"] == 0
 
 
 def test_projected_job_state_rejects_missing_auth_when_enabled(monkeypatch, tmp_path) -> None:
@@ -301,6 +374,76 @@ def test_projected_job_state_rejects_missing_auth_when_enabled(monkeypatch, tmp_
     response = client.get("/v1/platform/workflows/jobs/job-projection-auth")
     assert response.status_code == 401
     assert response.json()["detail"] == "Missing X-API-Key"
+
+
+def test_workflow_event_intake_rejects_unknown_job(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/v1/platform/workflows/events",
+        json={
+            "job_id": "job-missing",
+            "client_id": "client-a",
+            "workflow_key": "lead-enrichment",
+            "status": "running",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job record not found: job-missing"
+
+
+def test_workflow_event_intake_rejects_job_contract_mismatch(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
+
+    response = client.post(
+        "/v1/platform/workflows/events",
+        json={
+            "job_id": job_id,
+            "client_id": "client-b",
+            "workflow_key": "crm-sync",
+            "status": "running",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Workflow event does not match admitted job contract for "
+        f"{job_id}"
+    )
+
+
+def test_workflow_event_lookup_returns_empty_ledger_for_admitted_job(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    job_id = _create_job(
+        client,
+        client_id="client-a",
+        workflow_key="lead-enrichment",
+    )
+
+    response = client.get(f"/v1/platform/workflows/jobs/{job_id}/events")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "job_id": job_id,
+        "count": 0,
+        "records": [],
+    }
+
+
+def test_workflow_event_lookup_rejects_unknown_job(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.get("/v1/platform/workflows/jobs/job-missing/events")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job record not found: job-missing"
 
 
 def test_project_job_state_uses_received_at_then_id_for_latest_event() -> None:
