@@ -1,0 +1,11 @@
+services:
+  platform:
+    build:
+      context: .
+    env_file:
+      - .env
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./platform_data:/app/platform_data
+    restart: unless-stopped
