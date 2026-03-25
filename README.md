@@ -88,4 +88,9 @@ GitHub Actions runs the repo-local regression gate on pushes to `main` and on pu
 - `pytest -q`
 - a smoke command that imports `apps.platform_api.main`, creates the FastAPI app, and verifies workflow routes are registered
 
+## Production Ops
+
+The current internal production auth lane and VPS bootstrap procedure are documented in
+[docs/platform/PLATFORM_PRODUCTION_AUTH_LANE.md](/d:/FlowBiz/flowbiz-ai-platform/docs/platform/PLATFORM_PRODUCTION_AUTH_LANE.md).
+
 See `docs/PLATFORM_ROADMAP.md` for #2-#4 implementation plan.
