@@ -18,6 +18,15 @@ def test_healthz() -> None:
     assert "version" in data
 
 
+def test_readyz() -> None:
+    client = _client()
+    r = client.get("/readyz")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "ready"
+    assert data["checks"]["configuration_loaded"] is True
+
+
 def test_meta() -> None:
     client = _client()
     r = client.get("/v1/meta")

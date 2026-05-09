@@ -20,7 +20,10 @@ from platform_app.deps import (
     get_secret_provider_bundle,
     get_workflow_event_store,
 )
-from platform_app.dispatch_records import RunnerDispatchError
+from platform_app.dispatch_records import (
+    RunnerDispatchError,
+    validate_runner_dispatch_url,
+)
 
 
 def _clear_caches() -> None:
@@ -423,3 +426,25 @@ def test_callback_rejects_malformed_payload(monkeypatch, tmp_path) -> None:
         headers={"X-FlowBiz-Callback-Token": callback_token},
     )
     assert response.status_code == 422
+
+
+def test_runner_dispatch_url_validation_accepts_internal_http_url() -> None:
+    assert (
+        validate_runner_dispatch_url(
+            "http://flowbiz-infra-n8n-api-1:8010/workflow-dispatch",
+            production=True,
+        )
+        == "http://flowbiz-infra-n8n-api-1:8010/workflow-dispatch"
+    )
+
+
+def test_runner_dispatch_url_validation_rejects_localhost_in_production() -> None:
+    with pytest.raises(ValueError) as exc:
+        validate_runner_dispatch_url("http://127.0.0.1:8010/dispatch", production=True)
+    assert "must not use localhost" in str(exc.value)
+
+
+def test_runner_dispatch_url_validation_rejects_missing_hostname() -> None:
+    with pytest.raises(ValueError) as exc:
+        validate_runner_dispatch_url("/relative/dispatch")
+    assert "http(s) URL" in str(exc.value)

@@ -93,4 +93,8 @@ GitHub Actions runs the repo-local regression gate on pushes to `main` and on pu
 The current internal production auth lane and VPS bootstrap procedure are documented in
 [docs/platform/PLATFORM_PRODUCTION_AUTH_LANE.md](/d:/FlowBiz/flowbiz-ai-platform/docs/platform/PLATFORM_PRODUCTION_AUTH_LANE.md).
 
+The current internal hardening gate, deployment checklist, secret permission
+policy, public routing gate, and runner connectivity plan are documented under
+`docs/platform/`.
+
 See `docs/PLATFORM_ROADMAP.md` for #2-#4 implementation plan.

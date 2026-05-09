@@ -20,6 +20,19 @@ class PlatformSettings(BaseSettings):
     name: str = "FlowBiz AI Platform"
     version: str = "0.1.0"
     log_level: str = "INFO"
+    docs_enabled: bool | None = None
+
+    cors_allowed_origins: str = ""
+    cors_allow_credentials: bool = False
+    cors_allowed_methods: str = "GET,POST,OPTIONS"
+    cors_allowed_headers: str = (
+        "Authorization,Content-Type,X-API-Key,X-FlowBiz-Callback-Token,"
+        "X-Request-ID,X-Correlation-ID"
+    )
+    cors_expose_headers: str = (
+        "X-Request-ID,X-RateLimit-Limit,X-RateLimit-Remaining,"
+        "X-RateLimit-Reset,Retry-After"
+    )
 
     auth_mode: str = Field(default="disabled")
     auth_store_mode: str = Field(default="json")
@@ -49,6 +62,35 @@ class PlatformSettings(BaseSettings):
     metrics_mode: str = "log"
     tracing_mode: str = "disabled"
     alerts_mode: str = "disabled"
+
+    @property
+    def is_production(self) -> bool:
+        return self.env.strip().lower() == "production"
+
+    @property
+    def docs_enabled_effective(self) -> bool:
+        if self.docs_enabled is not None:
+            return self.docs_enabled
+        return not self.is_production
+
+    def csv(self, raw: str) -> list[str]:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return self.csv(self.cors_allowed_origins)
+
+    @property
+    def cors_method_list(self) -> list[str]:
+        return self.csv(self.cors_allowed_methods)
+
+    @property
+    def cors_header_list(self) -> list[str]:
+        return self.csv(self.cors_allowed_headers)
+
+    @property
+    def cors_expose_header_list(self) -> list[str]:
+        return self.csv(self.cors_expose_headers)
 
 
 @lru_cache
