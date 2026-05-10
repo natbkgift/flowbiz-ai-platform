@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from platform_app.config import PlatformSettings
 from platform_app.secrets import SecretNotFoundError, SecretProviderBundle
 
@@ -57,6 +59,27 @@ def validate_runtime_configuration(
                 )
     else:
         errors.append(f"unsupported LLM provider: {settings.llm_provider}")
+
+    if settings.core_base_url.strip():
+        parsed_core_url = urlparse(settings.core_base_url)
+        if parsed_core_url.scheme not in {"http", "https"} or not parsed_core_url.netloc:
+            errors.append("PLATFORM_CORE_BASE_URL must be an http(s) URL")
+        if settings.core_timeout_seconds <= 0 or settings.core_timeout_seconds > 10:
+            errors.append("PLATFORM_CORE_TIMEOUT_SECONDS must be > 0 and <= 10")
+        if settings.core_retry_attempts < 1 or settings.core_retry_attempts > 3:
+            errors.append("PLATFORM_CORE_RETRY_ATTEMPTS must be between 1 and 3")
+        if (
+            settings.core_retry_backoff_seconds < 0
+            or settings.core_retry_backoff_seconds > 2
+        ):
+            errors.append("PLATFORM_CORE_RETRY_BACKOFF_SECONDS must be between 0 and 2")
+        if settings.is_production:
+            allowed_hosts = set(settings.core_internal_allowed_host_list)
+            if not parsed_core_url.hostname or parsed_core_url.hostname not in allowed_hosts:
+                errors.append(
+                    "PLATFORM_CORE_BASE_URL host must be an approved internal host "
+                    "in production"
+                )
 
     if errors:
         raise RuntimeConfigurationError(

@@ -100,7 +100,48 @@ def test_public_meta_is_safe_in_production(monkeypatch, tmp_path) -> None:
     assert "env" not in data
     assert "modes" not in data
     assert set(data["core_dependency"].keys()) == {"installed"}
+    assert set(data["core_runtime"].keys()) == {"reachable"}
     assert "capabilities" in data
+
+
+def test_public_meta_exposes_only_coarse_core_runtime(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv(
+        "PLATFORM_CORE_BASE_URL", "http://flowbiz-ai-core-internal:8000"
+    )
+    monkeypatch.setenv("PLATFORM_CORE_RETRY_ATTEMPTS", "1")
+    monkeypatch.setattr(
+        "platform_app.routes.system.get_core_runtime_status",
+        lambda settings, request_id=None, correlation_id=None: {"reachable": True},
+    )
+    client = _client(monkeypatch, tmp_path, env="production")
+    response = client.get(
+        "/v1/meta",
+        headers={
+            "X-Request-ID": "req-meta-test",
+            "X-Correlation-ID": "corr-meta-test",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["core_runtime"] == {"reachable": True}
+    assert "core_base_url" not in response.text
+    assert "flowbiz-ai-core-internal" not in response.text
+    assert "token" not in response.text.lower()
+
+
+def test_production_rejects_public_core_base_url() -> None:
+    settings = PlatformSettings(
+        env="production",
+        auth_mode="api_key",
+        rate_limit_mode="redis",
+        docs_enabled=False,
+        core_base_url="https://api.flowbiz.cloud",
+    )
+    with pytest.raises(RuntimeConfigurationError) as exc:
+        validate_runtime_configuration(settings)
+    assert "approved internal host" in str(exc.value)
 
 
 def test_readyz_and_request_id_header(monkeypatch, tmp_path) -> None:

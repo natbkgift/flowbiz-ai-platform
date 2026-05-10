@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,15 @@ class PlatformSettings(BaseSettings):
     workflow_runner_dispatch_url: str = Field(default="")
     workflow_callback_shared_secret: str = Field(default="")
     platform_public_base_url: str = Field(default="http://localhost:8100")
+
+    core_base_url: str = Field(default="")
+    core_service_token: SecretStr | None = Field(default=None)
+    core_timeout_seconds: float = Field(default=2.0)
+    core_retry_attempts: int = Field(default=2)
+    core_retry_backoff_seconds: float = Field(default=0.2)
+    core_internal_allowed_hosts: str = Field(
+        default="flowbiz-ai-core-internal,localhost,127.0.0.1"
+    )
 
     rate_limit_mode: str = "noop"
     rate_limit_rpm: int = 60
@@ -91,6 +101,22 @@ class PlatformSettings(BaseSettings):
     @property
     def cors_expose_header_list(self) -> list[str]:
         return self.csv(self.cors_expose_headers)
+
+    @property
+    def core_internal_allowed_host_list(self) -> list[str]:
+        return self.csv(self.core_internal_allowed_hosts)
+
+    @property
+    def core_base_hostname(self) -> str:
+        if not self.core_base_url.strip():
+            return ""
+        return urlparse(self.core_base_url).hostname or ""
+
+    @property
+    def core_service_token_value(self) -> str:
+        if self.core_service_token is None:
+            return ""
+        return self.core_service_token.get_secret_value()
 
 
 @lru_cache
