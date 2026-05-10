@@ -30,3 +30,6 @@ src = ["apps", "platform_app", "tests"]
 
 [tool.setuptools.packages.find]
 include = ["apps*", "platform_app*"]
+
+[tool.setuptools.package-data]
+platform_app = ["static/operator/*.html", "static/operator/*.css", "static/operator/*.js"]

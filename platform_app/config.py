@@ -73,6 +73,17 @@ class PlatformSettings(BaseSettings):
     tracing_mode: str = "disabled"
     alerts_mode: str = "disabled"
 
+    operator_ui_enabled: bool = Field(default=False)
+    operator_ui_token: SecretStr | None = Field(default=None)
+    operator_ui_legacy_upstream_health_url: str = Field(default="")
+    operator_ui_public_canary_health_url: str = Field(default="")
+
+    @property
+    def operator_ui_token_value(self) -> str:
+        if self.operator_ui_token is None:
+            return ""
+        return self.operator_ui_token.get_secret_value()
+
     @property
     def is_production(self) -> bool:
         return self.env.strip().lower() == "production"

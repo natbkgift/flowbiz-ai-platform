@@ -8,6 +8,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY apps ./apps
 COPY platform_app ./platform_app
+# platform_app/static/operator/* is internal-only AI Operator Console assets.
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir .
