@@ -19,9 +19,10 @@ from platform_app.deps import (
 from platform_app.llm import ChatRequest, LLMProviderError
 from platform_app.rate_limit import apply_rate_limit_headers, enforce_rate_limit
 
-router = APIRouter(prefix="/v1/platform")
+router = APIRouter(prefix="/v1/platform", tags=["internal"])
 
 API_KEY_MANAGE_SCOPE = "platform:api_keys:manage"
+OPS_READ_SCOPE = "platform:ops:read"
 
 
 class APIKeyIssueRequest(BaseModel):
@@ -137,16 +138,72 @@ def platform_chat(
 
 
 @router.get("/ops/observability")
-def observability_snapshot(request: Request) -> dict[str, object]:
+def observability_snapshot(
+    request: Request,
+    principal: APIPrincipal = Depends(get_request_principal),
+) -> dict[str, object]:
+    require_scopes(principal, (OPS_READ_SCOPE,))
     obs = getattr(request.app.state, "observability", None)
     if obs is None:
-        return {"status": "disabled"}
+        return {
+            "status": "disabled",
+            "metrics_mode": "disabled",
+            "counters": {"recent_event_count": 0},
+        }
     return {
         "status": "ok",
         "metrics_mode": obs.metrics_mode,
         "tracing_mode": obs.tracing_mode,
         "alerts_mode": obs.alerts_mode,
         "recent_event_count": len(obs.recent_events),
+    }
+
+
+@router.get("/ops/metrics")
+def metrics_snapshot(
+    request: Request,
+    principal: APIPrincipal = Depends(get_request_principal),
+) -> dict[str, object]:
+    require_scopes(principal, (OPS_READ_SCOPE,))
+    obs = getattr(request.app.state, "observability", None)
+    if obs is None:
+        return {
+            "status": "disabled",
+            "metrics_mode": "disabled",
+            "counters": {"recent_event_count": 0},
+        }
+    return {
+        "status": "ok",
+        "metrics_mode": obs.metrics_mode,
+        "counters": {
+            "recent_event_count": len(obs.recent_events),
+        },
+    }
+
+
+@router.post("/ops/llm/smoke")
+def llm_smoke(
+    principal: APIPrincipal = Depends(get_request_principal),
+) -> dict[str, object]:
+    require_scopes(principal, (OPS_READ_SCOPE,))
+    adapter = get_llm_adapter()
+    try:
+        resp = adapter.chat(ChatRequest(prompt="flowbiz-platform-smoke"))
+    except NotImplementedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=str(exc),
+        ) from exc
+    except LLMProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    return {
+        "status": "ok",
+        "provider": resp.provider,
+        "model": resp.model,
+        "finish_reason": resp.finish_reason,
     }
 
 

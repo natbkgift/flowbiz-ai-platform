@@ -12,6 +12,7 @@ from pathlib import Path
 import sqlite3
 from threading import Lock
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
@@ -632,10 +633,41 @@ class RunnerDispatcher:
         return int(response.status_code)
 
 
+def validate_runner_dispatch_url(target_url: str, *, production: bool = False) -> str:
+    target = target_url.strip()
+    parsed = urlparse(target)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(
+            "PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL must be an http(s) URL "
+            "with a hostname"
+        )
+    if parsed.username or parsed.password:
+        raise ValueError(
+            "PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL must not embed credentials"
+        )
+    if parsed.fragment:
+        raise ValueError("PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL must not use fragments")
+    if production and parsed.hostname.lower() in {
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+    }:
+        raise ValueError(
+            "PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL must not use localhost "
+            "in production"
+        )
+    return target.rstrip("/")
+
+
 def build_runner_dispatcher(settings: PlatformSettings) -> RunnerDispatcher:
     target_url = settings.workflow_runner_dispatch_url.strip()
     if not target_url:
         raise ValueError("PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL is not configured")
+    target_url = validate_runner_dispatch_url(
+        target_url,
+        production=settings.is_production,
+    )
     callback_base = settings.platform_public_base_url.rstrip("/")
     callback_shared_secret = settings.workflow_callback_shared_secret.strip()
     if not callback_shared_secret:

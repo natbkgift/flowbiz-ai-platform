@@ -170,3 +170,22 @@ def test_redis_rate_limiter_raises_429_with_headers() -> None:
     assert exc.value.status_code == 429
     assert exc.value.headers is not None
     assert "X-RateLimit-Limit" in exc.value.headers
+
+
+class _UnavailableRedisClient:
+    def script_load(self, script: str) -> str:
+        raise ConnectionError("redis unavailable")
+
+
+def test_redis_rate_limiter_fails_closed_when_backend_unavailable() -> None:
+    limiter = RedisFixedWindowRateLimiter(
+        redis_url="redis://example",
+        prefix="fb:rl",
+        rpm=1,
+        client=_UnavailableRedisClient(),
+    )
+    with pytest.raises(HTTPException) as exc:
+        enforce_rate_limit(limiter, APIPrincipal("client-a"), "platform:chat")
+    assert exc.value.status_code == 503
+    assert exc.value.detail == "Rate limit backend unavailable"
+    assert exc.value.headers == {"Retry-After": "5"}

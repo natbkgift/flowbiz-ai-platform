@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1024" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>FlowBiz AI Operator Console</title>
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body class="theme-dark">
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">FlowBiz</span>
+      <span class="title">AI Operator Console</span>
+      <span class="env-badge" id="env-badge">internal</span>
+    </div>
+    <div class="topbar-right">
+      <span id="health-pill" class="pill pill-muted">health: loading…</span>
+      <span id="last-refresh" class="muted">refreshing…</span>
+      <button id="refresh-btn" class="btn">Refresh</button>
+    </div>
+  </header>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="dashboard">Dashboard</button>
+    <button class="tab" data-view="projects">Projects</button>
+    <button class="tab" data-view="tasks">Tasks</button>
+    <button class="tab" data-view="approvals">Approvals</button>
+    <button class="tab" data-view="workers">Workers</button>
+    <button class="tab" data-view="audit">Audit</button>
+    <button class="tab" data-view="reports">Reports</button>
+    <button class="tab" data-view="health">System Health</button>
+  </nav>
+
+  <main id="view-root">
+    <section data-pane="auth" class="pane">
+      <div class="card">
+        <h2>Operator Token</h2>
+        <p class="muted">
+          The console is internal-only. Paste the operator bearer token to load
+          control-plane data. The token is held in browser memory only and is
+          sent on every request as <code>Authorization: Bearer …</code>.
+        </p>
+        <div class="row">
+          <input id="operator-token" type="password" placeholder="operator bearer token" />
+          <button id="auth-btn" class="btn btn-primary">Use token</button>
+        </div>
+        <p id="auth-error" class="error"></p>
+      </div>
+    </section>
+
+    <section data-pane="dashboard" class="pane hidden">
+      <h2>Dashboard</h2>
+      <div class="card-grid" id="dashboard-cards"></div>
+      <div class="card">
+        <h3>Recent activity</h3>
+        <p class="muted">Last events claimed/approved/completed.</p>
+        <table class="data-table" id="dashboard-recent"></table>
+      </div>
+    </section>
+
+    <section data-pane="projects" class="pane hidden">
+      <h2>Projects</h2>
+      <table class="data-table" id="projects-table"></table>
+    </section>
+
+    <section data-pane="tasks" class="pane hidden">
+      <h2>Tasks</h2>
+      <div class="filters">
+        <label>Status
+          <select id="task-status-filter">
+            <option value="">all</option>
+            <option value="queued">queued</option>
+            <option value="claimed">claimed</option>
+            <option value="running">running</option>
+            <option value="requires_approval">requires_approval</option>
+            <option value="approved">approved</option>
+            <option value="rejected">rejected</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+        </label>
+        <label>Project
+          <select id="task-project-filter"><option value="">all</option></select>
+        </label>
+        <label>Search
+          <input id="task-search" placeholder="title or id" />
+        </label>
+      </div>
+      <table class="data-table" id="tasks-table"></table>
+    </section>
+
+    <section data-pane="task-detail" class="pane hidden">
+      <button class="btn back-btn" id="task-detail-back">&larr; back to tasks</button>
+      <h2 id="task-detail-title">Task</h2>
+      <div id="task-detail-body"></div>
+    </section>
+
+    <section data-pane="approvals" class="pane hidden">
+      <h2>Approvals</h2>
+      <div class="card warn-card">
+        <strong>Read-only worker.</strong>
+        Approving a write/deploy task changes its state in core, but the current
+        Hermes worker only claims read-only actions. No write, deploy, restart,
+        shell, container, or messaging action will be executed.
+      </div>
+      <h3>Awaiting approval</h3>
+      <table class="data-table" id="approvals-pending-table"></table>
+      <h3>Approval history</h3>
+      <table class="data-table" id="approvals-history-table"></table>
+    </section>
+
+    <section data-pane="workers" class="pane hidden">
+      <h2>Workers</h2>
+      <div class="card" id="worker-constraints"></div>
+      <table class="data-table" id="workers-table"></table>
+    </section>
+
+    <section data-pane="audit" class="pane hidden">
+      <h2>Audit & Events</h2>
+      <div class="filters">
+        <label>Event type
+          <input id="audit-event-filter" placeholder="task.approved, task.blocked, …" />
+        </label>
+      </div>
+      <h3>Audit log</h3>
+      <table class="data-table" id="audit-table"></table>
+      <h3>Task events</h3>
+      <table class="data-table" id="events-table"></table>
+    </section>
+
+    <section data-pane="reports" class="pane hidden">
+      <h2>Reports</h2>
+      <p class="muted">
+        Completed read-only tasks. Result summaries can be copied as text.
+        Downloads are intentionally disabled to avoid new public storage.
+      </p>
+      <table class="data-table" id="reports-table"></table>
+    </section>
+
+    <section data-pane="health" class="pane hidden">
+      <h2>System Health</h2>
+      <div class="card-grid" id="health-cards"></div>
+      <div class="card warn-card" id="health-warnings"></div>
+    </section>
+  </main>
+
+  <footer class="footer muted">
+    Internal-only operator console &middot;
+    No public exposure &middot;
+    No deploy / restart / shell / docker / SSH controls.
+  </footer>
+
+  <script src="assets/app.js" defer></script>
+</body>
+</html>

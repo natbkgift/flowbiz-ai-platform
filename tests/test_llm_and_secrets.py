@@ -10,7 +10,14 @@ from platform_app.llm import (
     LLMProviderError,
     OpenAIChatCompletionsAdapter,
 )
-from platform_app.secrets import JsonFileSecretProvider, SecretNotFoundError, SecretProviderBundle
+from platform_app.config import PlatformSettings
+from platform_app.runtime import RuntimeConfigurationError, validate_runtime_configuration
+from platform_app.secrets import (
+    EnvSecretProvider,
+    JsonFileSecretProvider,
+    SecretNotFoundError,
+    SecretProviderBundle,
+)
 
 
 class _FakeResponse:
@@ -138,3 +145,23 @@ def test_openai_adapter_maps_transport_error(tmp_path) -> None:
     with pytest.raises(LLMProviderError):
         adapter.chat(ChatRequest(prompt="hi"))
 
+
+def test_non_stub_llm_provider_requires_configured_secret(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    settings = PlatformSettings(
+        llm_provider="openai",
+        llm_model="gpt-4o-mini",
+        openai_api_key_secret_name="OPENAI_API_KEY",
+    )
+    bundle = SecretProviderBundle(provider_name="env", provider=EnvSecretProvider())
+
+    with pytest.raises(RuntimeConfigurationError) as exc:
+        validate_runtime_configuration(settings, bundle)
+
+    assert "required OpenAI provider secret" in str(exc.value)
+    assert "sk-" not in str(exc.value)
+
+
+def test_stub_llm_provider_remains_valid_for_local_dev() -> None:
+    settings = PlatformSettings(llm_provider="stub", llm_model="stub-echo")
+    validate_runtime_configuration(settings)

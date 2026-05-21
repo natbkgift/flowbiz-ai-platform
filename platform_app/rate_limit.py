@@ -26,6 +26,10 @@ class RateLimiter(Protocol):
     def check(self, principal: APIPrincipal, route_key: str) -> RateLimitDecision: ...
 
 
+class RateLimitBackendUnavailable(RuntimeError):
+    """Raised when the configured rate limit backend cannot be reached."""
+
+
 class NoopRateLimiter:
     def check(self, principal: APIPrincipal, route_key: str) -> RateLimitDecision:
         now = int(time())
@@ -100,7 +104,7 @@ return {current, ttl}
         try:
             import redis  # type: ignore
         except Exception as exc:
-            raise RuntimeError(
+            raise RateLimitBackendUnavailable(
                 "redis package is required for PLATFORM_RATE_LIMIT_MODE=redis"
             ) from exc
         self._client = redis.Redis.from_url(self.redis_url, decode_responses=False)
@@ -119,10 +123,14 @@ return {current, ttl}
                 self._script_sha = client.script_load(self._WINDOW_SCRIPT)
                 raw = client.evalsha(self._script_sha, 1, bucket_key, ttl_ms)
             else:
-                raise
+                raise RateLimitBackendUnavailable(
+                    "Rate limit backend unavailable"
+                ) from exc
 
         if not isinstance(raw, (list, tuple)) or len(raw) < 2:
-            raise RuntimeError("Unexpected Redis Lua response for rate limit script")
+            raise RateLimitBackendUnavailable(
+                "Unexpected Redis Lua response for rate limit script"
+            )
 
         count = int(raw[0])
         pttl = int(raw[1])
@@ -167,6 +175,12 @@ def enforce_rate_limit(limiter: RateLimiter, principal: APIPrincipal, route_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
+        ) from exc
+    except RateLimitBackendUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rate limit backend unavailable",
+            headers={"Retry-After": "5"},
         ) from exc
     if not decision.allowed:
         headers = build_rate_limit_headers(decision)

@@ -50,7 +50,7 @@ from platform_app.workflow_events import (
     project_job_state,
 )
 
-router = APIRouter(prefix="/v1/platform/workflows")
+router = APIRouter(prefix="/v1/platform/workflows", tags=["internal"])
 
 CALLBACK_SOURCE = "runner_callback"
 CALLBACK_STATUS_TO_EVENT_STATUS = {
