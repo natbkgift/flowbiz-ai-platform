@@ -237,7 +237,7 @@ def test_redact_payload_pure() -> None:
             "ok_field": "fine",
         },
         "target_paths": ["./.env", "ok.txt"],
-        "long_hex": "deadbeefdeadbeefdeadbeefdeadbeef00",
+        "long_hex": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     }
     out = redact_payload(payload)
     assert out["metadata"]["client_secret"] == "[REDACTED]"

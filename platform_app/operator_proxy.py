@@ -36,6 +36,10 @@ class OperatorProxy:
 
     def __init__(self, config: OperatorProxyConfig) -> None:
         self._config = config
+        self._client = httpx.Client(timeout=config.timeout_seconds)
+
+    def close(self) -> None:
+        self._client.close()
 
     def _headers(
         self, *, request_id: str | None, correlation_id: str | None
@@ -69,10 +73,9 @@ class OperatorProxy:
             request_id=request_id, correlation_id=correlation_id
         )
         try:
-            with httpx.Client(timeout=self._config.timeout_seconds) as client:
-                response = client.request(
-                    method, url, params=params, json=json_body, headers=headers
-                )
+            response = self._client.request(
+                method, url, params=params, json=json_body, headers=headers
+            )
         except httpx.HTTPError as exc:
             raise OperatorProxyError(502, f"Core unreachable: {exc.__class__.__name__}") from exc
 

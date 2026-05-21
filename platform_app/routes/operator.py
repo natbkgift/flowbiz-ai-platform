@@ -36,6 +36,7 @@ from platform_app.operator_redaction import redact_payload
 router = APIRouter(prefix="/internal/operator", tags=["internal-operator"])
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static" / "operator"
+_PING_CLIENT = httpx.Client(timeout=2.0)
 
 
 def _ensure_enabled(settings: PlatformSettings) -> None:
@@ -150,9 +151,11 @@ def operator_asset(
 ) -> FileResponse:
     """Serve a single console asset file."""
 
-    if "/" in filename or "\\" in filename or filename.startswith("."):
+    if Path(filename).name != filename or filename.startswith("."):
         raise HTTPException(status_code=404, detail="Asset not found")
     target = _STATIC_DIR / filename
+    if not target.resolve().is_relative_to(_STATIC_DIR.resolve()):
+        raise HTTPException(status_code=404, detail="Asset not found")
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="Asset not found")
     media = "text/css" if filename.endswith(".css") else (
@@ -198,8 +201,7 @@ def _ping(url: str) -> dict[str, Any]:
     if not url.strip():
         return {"configured": False, "status": "not_configured"}
     try:
-        with httpx.Client(timeout=2.0) as client:
-            response = client.get(url)
+        response = _PING_CLIENT.get(url)
         return {
             "configured": True,
             "status": "ok" if response.status_code == 200 else f"http_{response.status_code}",

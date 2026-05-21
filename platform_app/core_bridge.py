@@ -43,15 +43,15 @@ class CoreClient:
         )
         url = urljoin(self._config.base_url.rstrip("/") + "/", "healthz")
 
-        for attempt in range(attempts):
-            try:
-                with httpx.Client(timeout=self._config.timeout_seconds) as client:
+        with httpx.Client(timeout=self._config.timeout_seconds) as client:
+            for attempt in range(attempts):
+                try:
                     response = client.get(url, headers=headers)
-                return response.status_code == 200
-            except httpx.HTTPError:
-                if attempt == attempts - 1:
-                    return False
-                time.sleep(max(0.0, self._config.retry_backoff_seconds))
+                    return response.status_code == 200
+                except httpx.HTTPError:
+                    if attempt == attempts - 1:
+                        return False
+                    time.sleep(max(0.0, self._config.retry_backoff_seconds))
         return False
 
     def _request_headers(

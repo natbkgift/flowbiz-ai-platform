@@ -38,7 +38,9 @@ SENSITIVE_PATH_PATTERNS = (
 )
 
 BEARER_TOKEN_PATTERN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-]{8,}")
-LONG_HEX_PATTERN = re.compile(r"\b[A-Fa-f0-9]{32,}\b")
+# 64+ chars avoids false positives on UUIDs (32), Git SHAs (40), and MD5/SHA-1 hashes
+# while still catching SHA-256 digests and longer encoded secrets.
+LONG_HEX_PATTERN = re.compile(r"\b[A-Fa-f0-9]{64,}\b")
 
 
 def _is_sensitive_key(key: str) -> bool:
