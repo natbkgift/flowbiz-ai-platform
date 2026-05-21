@@ -43,6 +43,7 @@ class PlatformSettings(BaseSettings):
     workflow_events_sqlite_path: str = Field(
         default="platform_data/workflow_events.db"
     )
+    approval_gate_sqlite_path: str = Field(default="platform_data/approval_gate.db")
     workflow_runner_dispatch_url: str = Field(default="")
     workflow_callback_shared_secret: str = Field(default="")
     platform_public_base_url: str = Field(default="http://localhost:8100")

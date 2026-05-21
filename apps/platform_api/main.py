@@ -14,6 +14,7 @@ from platform_app.observability import (
     configure_structured_logging,
     init_observability,
 )
+from platform_app.routes.approval_gate import router as approval_gate_router
 from platform_app.routes.operator import router as operator_router
 from platform_app.routes.platform import router as platform_router
 from platform_app.routes.system import router as system_router
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(system_router)
     app.include_router(platform_router)
     app.include_router(workflow_events_router)
+    app.include_router(approval_gate_router)
     if settings.operator_ui_enabled:
         app.include_router(operator_router)
     return app
