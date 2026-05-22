@@ -10,6 +10,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Protocol
 
+from platform_app.sqlite_utils import connect_sqlite, prepare_sqlite_database
+
 
 @dataclass(frozen=True)
 class StoredAPIKey:
@@ -116,12 +118,11 @@ class SQLiteAPIKeyStore:
         parent.mkdir(parents=True, exist_ok=True)
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return connect_sqlite(self._db_path)
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
+            prepare_sqlite_database(conn)
             conn.executescript(
                 """
                 PRAGMA foreign_keys = ON;

@@ -61,6 +61,19 @@ class RequestContextMiddleware:
 
         try:
             await self.app(scope, receive, send_with_headers)
+        except Exception:
+            _ACCESS_LOGGER.exception(
+                "request_failed",
+                extra={
+                    "request_id": request_id,
+                    "correlation_id": correlation_id,
+                    "http_method": request.method,
+                    "http_path": request.url.path,
+                    "status_code": status_code,
+                    "duration_ms": round((perf_counter() - start) * 1000, 1),
+                },
+            )
+            raise
         finally:
             duration_ms = round((perf_counter() - start) * 1000, 1)
             _ACCESS_LOGGER.info(

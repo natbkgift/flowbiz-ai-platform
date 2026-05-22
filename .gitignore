@@ -2,8 +2,11 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.claude/
 *.pyc
 .env
+*.log
+proposal_*.json
 platform_data/
 dist/
 build/
