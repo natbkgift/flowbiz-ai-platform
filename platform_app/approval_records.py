@@ -197,7 +197,7 @@ class SQLiteApprovalRecordStore:
 
                 conn.execute(
                     """
-                    INSERT INTO approval_proposals (
+                    INSERT OR IGNORE INTO approval_proposals (
                       proposal_id,
                       connector_id,
                       action_class,
@@ -224,7 +224,7 @@ class SQLiteApprovalRecordStore:
                         proposal.payload_summary,
                         proposal.payload_hash,
                         triggering_signal,
-                        proposal.submitted_at.isoformat(timespec="milliseconds"),
+                        _to_utc_isoformat(proposal.submitted_at),
                         proposal.requested_by,
                         received_at,
                         full_payload,
@@ -317,6 +317,12 @@ def resolve_approval_gate_db_path(path_value: str) -> str:
     if path.is_absolute():
         return str(path)
     return str((Path.cwd() / path).resolve())
+
+
+def _to_utc_isoformat(value: datetime) -> str:
+    if value.tzinfo is None or value.utcoffset() is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat(timespec="milliseconds")
 
 
 def _row_to_decision(row: sqlite3.Row | None) -> StoredDecisionRecord | None:

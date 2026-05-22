@@ -232,7 +232,7 @@ class SQLiteApprovalPolicyStore:
             (policy for policy in matching if policy.approval_required_from),
             None,
         )
-        if approval_policy is not None and risk_level in {"HIGH", "CRITICAL"}:
+        if approval_policy is not None:
             return ApprovalPolicyDecision(
                 decision=DECISION_NEEDS_APPROVAL,
                 reason_code="APPROVAL_REQUIRED",
@@ -245,7 +245,7 @@ class SQLiteApprovalPolicyStore:
 
         return ApprovalPolicyDecision(
             decision=DECISION_DENY,
-            reason_code="NO_MATCHING_POLICY",
+            reason_code="RISK_LEVEL_NOT_PERMITTED",
             reason_detail=(
                 "Matching policies did not explicitly allow this risk level "
                 "or require approval"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -249,6 +251,66 @@ def test_needs_approval_for_high_risk_bulk_send(monkeypatch, tmp_path) -> None:
     assert get_approval_audit_store().count_by_proposal_id("proposal-needs-approval") == 1
 
 
+def test_needs_approval_for_medium_risk_when_policy_has_approver(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    client = _client(monkeypatch, tmp_path)
+    _register_connector(tmp_path)
+    _seed_policy(
+        tmp_path,
+        allowed_mutation_types=("delete",),
+        auto_allow_risk_levels=("LOW",),
+        approval_required_from="sales-ops-manager",
+    )
+
+    response = client.post(
+        "/v1/gate/proposals",
+        headers=_headers(),
+        json=_proposal(
+            proposal_id="proposal-medium-approval",
+            scope_type="bulk",
+            mutation_type="delete",
+        ),
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision"] == "NEEDS_APPROVAL"
+    assert data["risk_level"] == "MEDIUM"
+    assert data["reason_code"] == "APPROVAL_REQUIRED"
+    assert data["approval_required_from"] == "sales-ops-manager"
+
+
+def test_deny_when_matching_policy_does_not_permit_risk_level(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    client = _client(monkeypatch, tmp_path)
+    _register_connector(tmp_path)
+    _seed_policy(
+        tmp_path,
+        allowed_mutation_types=("delete",),
+        auto_allow_risk_levels=("LOW",),
+    )
+
+    response = client.post(
+        "/v1/gate/proposals",
+        headers=_headers(),
+        json=_proposal(
+            proposal_id="proposal-risk-denied",
+            scope_type="bulk",
+            mutation_type="delete",
+        ),
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision"] == "DENY"
+    assert data["risk_level"] == "MEDIUM"
+    assert data["reason_code"] == "RISK_LEVEL_NOT_PERMITTED"
+
+
 def test_connector_auth_failure_for_unregistered_connector(monkeypatch, tmp_path) -> None:
     client = _client(monkeypatch, tmp_path)
 
@@ -334,6 +396,75 @@ def test_decision_status_endpoint_returns_stored_decision(monkeypatch, tmp_path)
     assert submitted.status_code == 200
     assert response.status_code == 200
     assert response.json() == submitted.json()
+
+
+def test_retry_after_partial_proposal_insert_creates_decision(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    _register_connector(tmp_path)
+    _seed_policy(tmp_path)
+    _record_store(tmp_path)
+    payload = _proposal(proposal_id="proposal-partial-retry")
+
+    with sqlite3.connect(_db_path(tmp_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO approval_proposals (
+              proposal_id,
+              connector_id,
+              action_class,
+              target_system,
+              target_scope,
+              mutation_type,
+              payload_summary,
+              payload_hash,
+              triggering_signal,
+              submitted_at,
+              requested_by,
+              received_at,
+              full_payload
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["proposal_id"],
+                payload["connector_id"],
+                payload["action_class"],
+                payload["target_system"],
+                "{}",
+                payload["mutation_type"],
+                payload["payload_summary"],
+                payload["payload_hash"],
+                "{}",
+                payload["submitted_at"],
+                payload["requested_by"],
+                "2026-05-21T12:00:02.000+00:00",
+                "{}",
+            ),
+        )
+
+    response = client.post("/v1/gate/proposals", headers=_headers(), json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "ALLOW"
+    assert _record_store(tmp_path).get_decision_by_proposal_id("proposal-partial-retry")
+
+
+def test_submitted_at_is_stored_in_utc(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    _register_connector(tmp_path)
+    _seed_policy(tmp_path)
+    payload = _proposal(proposal_id="proposal-utc")
+    payload["submitted_at"] = "2026-05-21T19:00:01+07:00"
+
+    response = client.post("/v1/gate/proposals", headers=_headers(), json=payload)
+
+    assert response.status_code == 200
+    with sqlite3.connect(_db_path(tmp_path)) as conn:
+        stored = conn.execute(
+            "SELECT submitted_at FROM approval_proposals WHERE proposal_id = ?",
+            ("proposal-utc",),
+        ).fetchone()
+    assert stored[0] == "2026-05-21T12:00:01.000+00:00"
 
 
 def test_outcome_endpoint_records_executed_and_aborted(monkeypatch, tmp_path) -> None:
