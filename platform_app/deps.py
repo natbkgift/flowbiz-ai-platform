@@ -7,9 +7,16 @@ from functools import lru_cache
 from fastapi import Header, HTTPException, status
 
 from platform_app.admission_policy import SQLiteAdmissionPolicyStore
+from platform_app.approval_audit import SQLiteApprovalAuditStore
+from platform_app.approval_policy import SQLiteApprovalPolicyStore
+from platform_app.approval_records import (
+    SQLiteApprovalRecordStore,
+    resolve_approval_gate_db_path,
+)
 from platform_app.auth import auth_dependency_factory
 from platform_app.api_key_store import SQLiteAPIKeyStore, resolve_auth_db_path
 from platform_app.config import get_settings
+from platform_app.connector_store import SQLiteConnectorStore
 from platform_app.llm import build_llm_adapter
 from platform_app.rate_limit import build_rate_limiter
 from platform_app.secrets import build_secret_provider
@@ -112,4 +119,36 @@ def get_admission_policy_store() -> SQLiteAdmissionPolicyStore:
     settings = get_settings()
     return SQLiteAdmissionPolicyStore(
         db_path=resolve_workflow_events_db_path(settings.workflow_events_sqlite_path)
+    )
+
+
+@lru_cache
+def get_approval_connector_store() -> SQLiteConnectorStore:
+    settings = get_settings()
+    return SQLiteConnectorStore(
+        db_path=resolve_approval_gate_db_path(settings.approval_gate_sqlite_path)
+    )
+
+
+@lru_cache
+def get_approval_policy_store() -> SQLiteApprovalPolicyStore:
+    settings = get_settings()
+    return SQLiteApprovalPolicyStore(
+        db_path=resolve_approval_gate_db_path(settings.approval_gate_sqlite_path)
+    )
+
+
+@lru_cache
+def get_approval_record_store() -> SQLiteApprovalRecordStore:
+    settings = get_settings()
+    return SQLiteApprovalRecordStore(
+        db_path=resolve_approval_gate_db_path(settings.approval_gate_sqlite_path)
+    )
+
+
+@lru_cache
+def get_approval_audit_store() -> SQLiteApprovalAuditStore:
+    settings = get_settings()
+    return SQLiteApprovalAuditStore(
+        db_path=resolve_approval_gate_db_path(settings.approval_gate_sqlite_path)
     )
