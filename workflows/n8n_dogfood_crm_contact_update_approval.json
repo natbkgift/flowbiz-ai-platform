@@ -1,0 +1,326 @@
+{
+  "name": "FlowBiz Gate - CRM Contact Update Approval (Dogfood)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst mutationPayload = $json.mutation_payload ?? {\n  contact_id: $json.contact_id ?? 'mock-contact-001',\n  fields: $json.fields ?? { phone: '+66000000000' },\n};\n\nconst canonicalPayload = JSON.stringify(mutationPayload);\nconst payloadHash = crypto\n  .createHash('sha256')\n  .update(canonicalPayload)\n  .digest('hex');\n\nconst executionId = $execution.id ?? Date.now().toString();\nconst eventId = $json.event_id ?? `manual-${executionId}`;\nconst now = new Date().toISOString();\nconst actionClass = $json.action_class ?? 'crm.contact.update';\nconst targetScope = $json.target_scope ?? {\n  type: 'single',\n  estimated_record_count: 1,\n};\nconst mutationType = $json.mutation_type ?? 'update';\nconst safeSummary =\n  $json.payload_summary ?? 'Update one contact from validated workflow trigger';\nconst proposalPrefix = $json.proposal_prefix ?? 'n8n-dogfood';\n\nreturn {\n  json: {\n    workflow_run_id: executionId,\n    proposal: {\n      proposal_id: `${proposalPrefix}-${executionId}`,\n      connector_id: 'dogfood-n8n',\n      action_class: actionClass,\n      target_system: $json.target_system ?? 'hubspot-prod',\n      target_scope: targetScope,\n      mutation_type: mutationType,\n      payload_summary: safeSummary,\n      payload_hash: payloadHash,\n      triggering_signal: {\n        source: 'crm_webhook',\n        signal_id: eventId,\n        signal_timestamp: now,\n      },\n      submitted_at: now,\n      requested_by: 'dogfood-n8n',\n    },\n    intended_mutation_payload: mutationPayload,\n  },\n};"
+      },
+      "id": "build-proposal",
+      "name": "Build Proposal Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8100/v1/gate/proposals",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.FLOWBIZ_GATE_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.proposal) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "http-gate",
+      "name": "Submit Proposal to Gate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const proposal = $('Build Proposal Payload').item.json.proposal;\nconst response = $json.body ?? $json;\nconst statusCodeRaw = $json.statusCode ?? $json.status ?? null;\nconst statusCode = Number(statusCodeRaw);\nconst decision = response?.decision;\n\nconst allowedDecisions = ['ALLOW', 'NEEDS_APPROVAL', 'DENY'];\nconst successfulHttp = statusCode === 200;\nconst validDecision = successfulHttp && allowedDecisions.includes(decision);\nconst normalizedDecision = validDecision ? decision : 'ERROR';\n\nlet stopReason = null;\nif (!successfulHttp) {\n  stopReason = `Approval Gate returned HTTP ${statusCode || 'unknown'}`;\n} else if (!allowedDecisions.includes(decision)) {\n  stopReason = `Malformed or unknown decision: ${decision}`;\n}\n\nreturn {\n  json: {\n    workflow_run_id: $('Build Proposal Payload').item.json.workflow_run_id,\n    proposal_id: response?.proposal_id ?? proposal.proposal_id,\n    decision_id: response?.decision_id ?? null,\n    decision: normalizedDecision,\n    http_status: statusCode,\n    gate_timestamp: response?.decision_timestamp ?? null,\n    reason_code: response?.reason_code ?? null,\n    reason_detail: response?.reason_detail ?? null,\n    risk_level: response?.risk_level ?? null,\n    approval_required_from: response?.approval_required_from ?? null,\n    approval_queue_id: response?.approval_queue_id ?? null,\n    target_system: proposal.target_system,\n    action_class: proposal.action_class,\n    payload_hash: proposal.payload_hash,\n    error_body: validDecision ? null : response,\n    stop_reason: stopReason,\n    intended_mutation_payload: $('Build Proposal Payload').item.json.intended_mutation_payload,\n  },\n};"
+      },
+      "id": "normalize-result",
+      "name": "Normalize Gate Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "ALLOW",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ALLOW"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "NEEDS_APPROVAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "NEEDS_APPROVAL"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.decision }}",
+                    "rightValue": "DENY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "DENY"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch-decision",
+      "name": "Branch by Decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "workflow_status", "value": "executed" },
+            { "name": "workflow_run_id", "value": "={{ $json.workflow_run_id }}" },
+            { "name": "proposal_id", "value": "={{ $json.proposal_id }}" },
+            { "name": "decision_id", "value": "={{ $json.decision_id }}" },
+            { "name": "decision", "value": "={{ $json.decision }}" },
+            { "name": "reason_code", "value": "={{ $json.reason_code }}" },
+            { "name": "reason_detail", "value": "={{ $json.reason_detail }}" },
+            { "name": "risk_level", "value": "={{ $json.risk_level }}" },
+            { "name": "target_system", "value": "={{ $json.target_system }}" },
+            { "name": "action_class", "value": "={{ $json.action_class }}" },
+            { "name": "payload_hash", "value": "={{ $json.payload_hash }}" },
+            { "name": "gate_timestamp", "value": "={{ $json.gate_timestamp }}" },
+            { "name": "mock_crm_update", "value": "EXECUTED — mock CRM update ran (contact_id={{ $json.intended_mutation_payload?.contact_id }}, fields={{ JSON.stringify($json.intended_mutation_payload?.fields) }})" }
+          ],
+          "number": [
+            { "name": "http_status", "value": "={{ $json.http_status }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "allow-evidence",
+      "name": "ALLOW - Mock CRM + Evidence",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1380, 80]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "workflow_status", "value": "pending_approval" },
+            { "name": "workflow_run_id", "value": "={{ $json.workflow_run_id }}" },
+            { "name": "proposal_id", "value": "={{ $json.proposal_id }}" },
+            { "name": "decision_id", "value": "={{ $json.decision_id }}" },
+            { "name": "decision", "value": "={{ $json.decision }}" },
+            { "name": "reason_code", "value": "={{ $json.reason_code }}" },
+            { "name": "reason_detail", "value": "={{ $json.reason_detail }}" },
+            { "name": "risk_level", "value": "={{ $json.risk_level }}" },
+            { "name": "approval_queue_id", "value": "={{ $json.approval_queue_id }}" },
+            { "name": "approval_required_from", "value": "={{ $json.approval_required_from }}" },
+            { "name": "target_system", "value": "={{ $json.target_system }}" },
+            { "name": "action_class", "value": "={{ $json.action_class }}" },
+            { "name": "payload_hash", "value": "={{ $json.payload_hash }}" },
+            { "name": "gate_timestamp", "value": "={{ $json.gate_timestamp }}" },
+            { "name": "mock_crm_update", "value": "NOT EXECUTED — pending approval" }
+          ],
+          "number": [
+            { "name": "http_status", "value": "={{ $json.http_status }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "needs-approval-evidence",
+      "name": "NEEDS_APPROVAL - Evidence",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1380, 260]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "workflow_status", "value": "blocked" },
+            { "name": "workflow_run_id", "value": "={{ $json.workflow_run_id }}" },
+            { "name": "proposal_id", "value": "={{ $json.proposal_id }}" },
+            { "name": "decision_id", "value": "={{ $json.decision_id }}" },
+            { "name": "decision", "value": "={{ $json.decision }}" },
+            { "name": "reason_code", "value": "={{ $json.reason_code }}" },
+            { "name": "reason_detail", "value": "={{ $json.reason_detail }}" },
+            { "name": "risk_level", "value": "={{ $json.risk_level }}" },
+            { "name": "target_system", "value": "={{ $json.target_system }}" },
+            { "name": "action_class", "value": "={{ $json.action_class }}" },
+            { "name": "payload_hash", "value": "={{ $json.payload_hash }}" },
+            { "name": "gate_timestamp", "value": "={{ $json.gate_timestamp }}" },
+            { "name": "mock_crm_update", "value": "NOT EXECUTED — denied by gate" }
+          ],
+          "number": [
+            { "name": "http_status", "value": "={{ $json.http_status }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "deny-evidence",
+      "name": "DENY - Evidence",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1380, 440]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "workflow_status", "value": "gate_error_fail_closed" },
+            { "name": "workflow_run_id", "value": "={{ $json.workflow_run_id }}" },
+            { "name": "proposal_id", "value": "={{ $json.proposal_id }}" },
+            { "name": "decision_id", "value": "={{ $json.decision_id }}" },
+            { "name": "decision", "value": "={{ $json.decision }}" },
+            { "name": "reason_code", "value": "={{ $json.reason_code }}" },
+            { "name": "reason_detail", "value": "={{ $json.reason_detail }}" },
+            { "name": "risk_level", "value": "={{ $json.risk_level }}" },
+            { "name": "target_system", "value": "={{ $json.target_system }}" },
+            { "name": "action_class", "value": "={{ $json.action_class }}" },
+            { "name": "payload_hash", "value": "={{ $json.payload_hash }}" },
+            { "name": "gate_timestamp", "value": "={{ $json.gate_timestamp }}" },
+            { "name": "stop_reason", "value": "={{ $json.stop_reason }}" },
+            { "name": "error_body", "value": "={{ JSON.stringify($json.error_body) }}" },
+            { "name": "mock_crm_update", "value": "NOT EXECUTED — fail closed" }
+          ],
+          "number": [
+            { "name": "http_status", "value": "={{ $json.http_status }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error-evidence",
+      "name": "ERROR - Fail Closed Evidence",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1380, 620]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [{ "node": "Build Proposal Payload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Proposal Payload": {
+      "main": [
+        [{ "node": "Submit Proposal to Gate", "type": "main", "index": 0 }]
+      ]
+    },
+    "Submit Proposal to Gate": {
+      "main": [
+        [{ "node": "Normalize Gate Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Gate Result": {
+      "main": [
+        [{ "node": "Branch by Decision", "type": "main", "index": 0 }]
+      ]
+    },
+    "Branch by Decision": {
+      "main": [
+        [{ "node": "ALLOW - Mock CRM + Evidence", "type": "main", "index": 0 }],
+        [{ "node": "NEEDS_APPROVAL - Evidence", "type": "main", "index": 0 }],
+        [{ "node": "DENY - Evidence", "type": "main", "index": 0 }],
+        [{ "node": "ERROR - Fail Closed Evidence", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "pinData": {
+    "Manual Trigger": [
+      {
+        "json": {
+          "event_id": "dryrun-allow-001",
+          "proposal_prefix": "dryrun-allow",
+          "action_class": "crm.contact.update",
+          "target_system": "hubspot-prod",
+          "target_scope": { "type": "single", "estimated_record_count": 1 },
+          "mutation_type": "update",
+          "payload_summary": "Update one contact from validated workflow trigger",
+          "mutation_payload": {
+            "contact_id": "mock-contact-001",
+            "fields": { "phone": "+66000000000" }
+          }
+        }
+      }
+    ]
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "flowbiz" },
+    { "name": "dogfood" },
+    { "name": "approval-gate" }
+  ],
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "flowbiz-dogfood-local"
+  }
+}
