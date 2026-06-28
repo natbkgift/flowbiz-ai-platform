@@ -51,14 +51,23 @@ REQUIRED_SCHEMAS = {
 
 
 def load_contract() -> dict:
-    return json.loads(OPENAPI.read_text(encoding="utf-8"))
+    spec = json.loads(OPENAPI.read_text(encoding="utf-8"))
+    assert isinstance(spec, dict), "OpenAPI document must be a JSON object"
+    return spec
+
+
+def require_mapping(value: object, context: str) -> dict:
+    assert isinstance(value, dict), f"{context} must be an object"
+    return value
 
 
 def operations(spec: dict):
-    for path, path_item in spec["paths"].items():
+    paths = require_mapping(spec.get("paths"), "OpenAPI paths")
+    for path, raw_path_item in paths.items():
+        path_item = require_mapping(raw_path_item, f"Path item {path}")
         for method, operation in path_item.items():
             if method in {"get", "post", "put", "patch", "delete"}:
-                yield path, method, operation
+                yield path, method, require_mapping(operation, f"{method.upper()} {path}")
 
 
 def walk(value):
@@ -73,46 +82,111 @@ def walk(value):
 
 def test_openapi_version_paths_and_operations() -> None:
     spec = load_contract()
-    assert re.fullmatch(r"3\.1\.\d+", spec["openapi"])
+    version = spec.get("openapi")
+    assert isinstance(version, str) and re.fullmatch(r"3\.1\.\d+", version), (
+        "OpenAPI version must be a 3.1.x string"
+    )
+    paths = require_mapping(spec.get("paths"), "OpenAPI paths")
     for path, methods in REQUIRED_PATH_METHODS.items():
-        assert path in spec["paths"]
-        assert methods <= spec["paths"][path].keys()
-    operation_ids = [item[2]["operationId"] for item in operations(spec)]
-    assert len(operation_ids) == len(set(operation_ids))
+        assert path in paths, f"Missing required path {path}"
+        path_item = require_mapping(paths.get(path), f"Path item {path}")
+        missing_methods = methods - path_item.keys()
+        assert not missing_methods, f"{path} is missing methods: {sorted(missing_methods)}"
+
+    operation_ids = []
+    for path, method, operation in operations(spec):
+        operation_id = operation.get("operationId")
+        assert isinstance(operation_id, str) and operation_id, (
+            f"Missing operationId for {method.upper()} {path}"
+        )
+        operation_ids.append(operation_id)
+    duplicates = sorted({item for item in operation_ids if operation_ids.count(item) > 1})
+    assert not duplicates, f"Duplicate operationIds found: {duplicates}"
 
 
 def test_references_and_required_schemas_resolve() -> None:
     spec = load_contract()
-    schemas = spec["components"]["schemas"]
-    assert REQUIRED_SCHEMAS <= schemas.keys()
+    components = require_mapping(spec.get("components"), "OpenAPI components")
+    schemas = require_mapping(components.get("schemas"), "OpenAPI component schemas")
+    missing_schemas = REQUIRED_SCHEMAS - schemas.keys()
+    assert not missing_schemas, f"Missing required schemas: {sorted(missing_schemas)}"
     for node in walk(spec):
         ref = node.get("$ref")
-        if ref:
-            target = spec
-            for segment in ref.removeprefix("#/").split("/"):
-                target = target[segment.replace("~1", "/").replace("~0", "~")]
-            assert target
+        if ref is None:
+            continue
+        assert isinstance(ref, str) and ref.startswith("#/"), (
+            f"External or malformed $ref is not allowed in this self-contained contract: {ref!r}"
+        )
+        target: object = spec
+        for segment in ref.removeprefix("#/").split("/"):
+            key = segment.replace("~1", "/").replace("~0", "~")
+            target_mapping = require_mapping(target, f"$ref parent while resolving {ref}")
+            assert key in target_mapping, f"Unresolved local $ref: {ref}"
+            target = target_mapping[key]
+        assert target is not None, f"Local $ref resolves to null: {ref}"
 
 
 def test_operation_security_extensions_and_safe_errors() -> None:
     spec = load_contract()
+    components = require_mapping(spec.get("components"), "OpenAPI components")
+    security_schemes = require_mapping(
+        components.get("securitySchemes"), "OpenAPI security schemes"
+    )
+    assert "SupabaseBearer" in security_schemes, "Missing SupabaseBearer security scheme"
     for path, method, operation in operations(spec):
-        assert EXTENSIONS <= operation.keys()
-        assert operation["x-flowbiz-caller"] == "Next.js BFF"
-        assert operation["security"] == [{"SupabaseBearer": []}]
-        assert {"400", "401", "403", "404", "409", "422", "429", "503"} <= operation["responses"].keys()
+        missing_extensions = EXTENSIONS - operation.keys()
+        assert not missing_extensions, (
+            f"{method.upper()} {path} is missing extensions: {sorted(missing_extensions)}"
+        )
+        caller = operation.get("x-flowbiz-caller")
+        assert caller == "Next.js BFF", (
+            f"{method.upper()} {path} must declare Next.js BFF as caller; got {caller!r}"
+        )
+        security = operation["security"] if "security" in operation else spec.get("security")
+        assert security == [{"SupabaseBearer": []}], (
+            f"{method.upper()} {path} must effectively require SupabaseBearer"
+        )
+        responses = require_mapping(operation.get("responses"), f"Responses for {method.upper()} {path}")
+        required_errors = {"400", "401", "403", "404", "409", "422", "429", "503"}
+        missing_errors = required_errors - responses.keys()
+        assert not missing_errors, (
+            f"{method.upper()} {path} is missing safe errors: {sorted(missing_errors)}"
+        )
+        idempotency = operation.get("x-flowbiz-idempotency")
         if method == "get":
-            assert operation["x-flowbiz-idempotency"] == "not-applicable"
+            assert idempotency == "not-applicable", (
+                f"GET {path} must declare idempotency as not-applicable"
+            )
         else:
-            assert operation["x-flowbiz-idempotency"].startswith("required")
-            refs = {item.get("$ref") for item in operation.get("parameters", [])}
-            assert "#/components/parameters/IdempotencyKeyParameter" in refs
+            assert isinstance(idempotency, str) and idempotency.startswith("required"), (
+                f"{method.upper()} {path} must require idempotency"
+            )
+            parameters = operation.get("parameters", [])
+            assert isinstance(parameters, list), (
+                f"Parameters for {method.upper()} {path} must be an array"
+            )
+            refs = {
+                require_mapping(item, f"Parameter for {method.upper()} {path}").get("$ref")
+                for item in parameters
+            }
+            assert "#/components/parameters/IdempotencyKeyParameter" in refs, (
+                f"{method.upper()} {path} must reference IdempotencyKeyParameter"
+            )
         if path != "/v1/auth/me":
-            assert operation["x-flowbiz-tenant-enforcement"] != "not-applicable"
+            tenant_enforcement = operation.get("x-flowbiz-tenant-enforcement")
+            assert tenant_enforcement not in {None, "not-applicable"}, (
+                f"{method.upper()} {path} must declare tenant enforcement"
+            )
 
 
 def test_job_states_are_closed_and_complete() -> None:
-    states = load_contract()["components"]["schemas"]["Job"]["properties"]["state"]["enum"]
+    spec = load_contract()
+    components = require_mapping(spec.get("components"), "OpenAPI components")
+    schemas = require_mapping(components.get("schemas"), "OpenAPI component schemas")
+    job = require_mapping(schemas.get("Job"), "Job schema")
+    properties = require_mapping(job.get("properties"), "Job schema properties")
+    state = require_mapping(properties.get("state"), "Job.state schema")
+    states = state.get("enum")
     assert states == ["queued", "running", "succeeded", "failed", "dead_letter", "cancelled"]
 
 
@@ -120,18 +194,42 @@ def test_no_password_or_direct_browser_contract() -> None:
     spec = load_contract()
     serialized = json.dumps(spec).lower()
     assert "password" not in serialized
-    assert all(operation["x-flowbiz-caller"] != "Browser" for _, _, operation in operations(spec))
+    for path, method, operation in operations(spec):
+        caller = operation.get("x-flowbiz-caller")
+        assert isinstance(caller, str) and caller, (
+            f"Missing x-flowbiz-caller for {method.upper()} {path}"
+        )
+        assert caller != "Browser", f"Browser caller is forbidden for {method.upper()} {path}"
 
 
 def test_fixtures_are_synthetic_and_reference_known_schemas() -> None:
-    schemas = load_contract()["components"]["schemas"]
+    spec = load_contract()
+    components = require_mapping(spec.get("components"), "OpenAPI components")
+    schemas = require_mapping(components.get("schemas"), "OpenAPI component schemas")
     files = sorted(FIXTURES.glob("*.json"))
-    assert len(files) >= 9
+    assert len(files) >= 9, "Expected at least nine synthetic fixture files"
     combined = ""
     for path in files:
         fixture = json.loads(path.read_text(encoding="utf-8"))
-        names = fixture.get("schemas", [fixture.get("schema")])
-        assert names and all(name in schemas for name in names)
+        assert isinstance(fixture, dict), f"Fixture {path.name} must be a JSON object"
+        has_schema = "schema" in fixture
+        has_schemas = "schemas" in fixture
+        assert has_schema ^ has_schemas, (
+            f"Fixture {path.name} must specify exactly one of 'schema' or 'schemas'"
+        )
+        if has_schemas:
+            names = fixture.get("schemas")
+            assert isinstance(names, list) and names, (
+                f"Fixture {path.name} 'schemas' must be a non-empty array"
+            )
+        else:
+            names = [fixture.get("schema")]
+        assert all(isinstance(name, str) and name for name in names), (
+            f"Fixture {path.name} schema names must be non-empty strings"
+        )
+        unknown = sorted(name for name in names if name not in schemas)
+        assert not unknown, f"Fixture {path.name} references unknown schemas: {unknown}"
+        assert "example" in fixture, f"Fixture {path.name} must contain an example"
         combined += json.dumps(fixture)
     lowered = combined.lower()
     assert "demo" in lowered
