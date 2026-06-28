@@ -6,7 +6,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | `OWNER_DECISION_REQUIRED` |
+| Status | `OWNER_CLASSIFICATION_COMPLETE` |
 | Date | 2026-06-28 |
 | Repository | `natbkgift/flowbiz-ai-platform` |
 | Branch | `docs/sqlite-owner-classification` |
@@ -147,23 +147,23 @@ classification, tenant, or disposal status.
 
 | Alias | Table/group | Non-sensitive evidence | Timestamp range (UTC) | Relationship summary | Owner classification | Owner rationale | Disposal permitted |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| R001 | `approval_connectors` | Enabled connector configuration | 2026-05-22T03:20:28.998Z to 2026-05-23T02:59:55.975Z | Referenced by all 4 proposal families | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R002 | `approval_policies` | Enabled contact-update policy | 2026-05-23T02:59:56.071Z | Criteria relate to 2 proposals | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R003 | `approval_policies` | Enabled campaign-send policy | 2026-05-23T02:59:56.150Z | Criteria relate to 1 proposal | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R004 | Proposal family 1 / `approval_proposals` | Contact update; update mutation | 2026-05-22T03:00:01.000Z to 2026-05-22T09:51:18.049Z | Parent of R005 and R006 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R005 | Proposal family 1 / `approval_decisions` | `ALLOW`; `LOW` risk | 2026-05-22T09:51:17.942Z | Decision child of R004; paired with R006 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R006 | Proposal family 1 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-22T09:51:17.942Z | Audit child of R004; references R005 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R007 | Proposal family 2 / `approval_proposals` | Contact update; update mutation | 2026-05-23T03:01:01.000Z to 2026-05-23T03:01:09.988Z | Parent of R008 and R009 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R008 | Proposal family 2 / `approval_decisions` | `ALLOW`; `LOW` risk | 2026-05-23T03:01:09.881Z | Decision child of R007; paired with R009 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R009 | Proposal family 2 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-23T03:01:09.881Z | Audit child of R007; references R008 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R010 | Proposal family 3 / `approval_proposals` | Campaign send; send mutation | 2026-05-23T03:01:19.006Z to 2026-05-23T03:02:01.000Z | Parent of R011 and R012 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R011 | Proposal family 3 / `approval_decisions` | `NEEDS_APPROVAL`; `HIGH` risk | 2026-05-23T03:01:18.882Z | Decision child of R010; paired with R012 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R012 | Proposal family 3 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-23T03:01:18.882Z | Audit child of R010; references R011 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R013 | Proposal family 4 / `approval_proposals` | Deal status change; status-change mutation | 2026-05-23T03:01:28.787Z to 2026-05-23T03:03:01.000Z | Parent of R014 and R015 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R014 | Proposal family 4 / `approval_decisions` | `DENY`; `LOW` risk | 2026-05-23T03:01:28.696Z | Decision child of R013; paired with R015 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R015 | Proposal family 4 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-23T03:01:28.696Z | Audit child of R013; references R014 | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R016 | `workflow_jobs` | `received` status | 2026-03-24T14:24:29.789Z | No child workflow events observed | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
-| R017 | `workflow_jobs` | `received` status | 2026-05-22T10:27:42.773Z | No child workflow events observed | `PENDING_OWNER_DECISION` | `PENDING_OWNER_INPUT` | `NO` |
+| R001 | `approval_connectors` | Enabled connector configuration | 2026-05-22T03:20:28.998Z to 2026-05-23T02:59:55.975Z | Referenced by all 4 proposal families | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R002 | `approval_policies` | Enabled contact-update policy | 2026-05-23T02:59:56.071Z | Criteria relate to 2 proposals | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R003 | `approval_policies` | Enabled campaign-send policy | 2026-05-23T02:59:56.150Z | Criteria relate to 1 proposal | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R004 | Proposal family 1 / `approval_proposals` | Contact update; update mutation | 2026-05-22T03:00:01.000Z to 2026-05-22T09:51:18.049Z | Parent of R005 and R006 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R005 | Proposal family 1 / `approval_decisions` | `ALLOW`; `LOW` risk | 2026-05-22T09:51:17.942Z | Decision child of R004; paired with R006 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R006 | Proposal family 1 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-22T09:51:17.942Z | Audit child of R004; references R005 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R007 | Proposal family 2 / `approval_proposals` | Contact update; update mutation | 2026-05-23T03:01:01.000Z to 2026-05-23T03:01:09.988Z | Parent of R008 and R009 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R008 | Proposal family 2 / `approval_decisions` | `ALLOW`; `LOW` risk | 2026-05-23T03:01:09.881Z | Decision child of R007; paired with R009 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R009 | Proposal family 2 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-23T03:01:09.881Z | Audit child of R007; references R008 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R010 | Proposal family 3 / `approval_proposals` | Campaign send; send mutation | 2026-05-23T03:01:19.006Z to 2026-05-23T03:02:01.000Z | Parent of R011 and R012 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R011 | Proposal family 3 / `approval_decisions` | `NEEDS_APPROVAL`; `HIGH` risk | 2026-05-23T03:01:18.882Z | Decision child of R010; paired with R012 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R012 | Proposal family 3 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-23T03:01:18.882Z | Audit child of R010; references R011 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R013 | Proposal family 4 / `approval_proposals` | Deal status change; status-change mutation | 2026-05-23T03:01:28.787Z to 2026-05-23T03:03:01.000Z | Parent of R014 and R015 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R014 | Proposal family 4 / `approval_decisions` | `DENY`; `LOW` risk | 2026-05-23T03:01:28.696Z | Decision child of R013; paired with R015 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R015 | Proposal family 4 / `approval_audit_events` | `DECISION_MADE` audit event | 2026-05-23T03:01:28.696Z | Audit child of R013; references R014 | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R016 | `workflow_jobs` | `received` status | 2026-03-24T14:24:29.789Z | No child workflow events observed | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
+| R017 | `workflow_jobs` | `received` status | 2026-05-22T10:27:42.773Z | No child workflow events observed | `test` | Owner confirms FlowBiz has no real customers; internal development/test record | `NO` |
 
 ## 8. Classification Definitions
 
@@ -197,21 +197,22 @@ classification, tenant, or disposal status.
 
 | Field | Owner entry |
 | --- | --- |
-| Owner name/role | `PENDING_OWNER_INPUT` |
-| Decision instruction/reference | `PENDING_OWNER_INPUT` |
-| Decision date | `PENDING_OWNER_INPUT` |
-| Aliases reviewed | `PENDING_OWNER_INPUT` |
-| Exceptions or unresolved aliases | `PENDING_OWNER_INPUT` |
-| Approval signature/record | `PENDING_OWNER_INPUT` |
+| Owner name/role | `Nat / FlowBiz Owner` |
+| Decision instruction/reference | `Owner instruction: FlowBiz has no real customers; complete the classification without returning manual record-entry work` |
+| Decision date | `2026-06-28` |
+| Aliases reviewed | `R001-R017` |
+| Exceptions or unresolved aliases | `NONE` |
+| Approval signature/record | `OWNER_CONFIRMED_NO_REAL_CUSTOMERS` |
 
-The Owner must explicitly classify R001 through R017. Updating this record does not
-authorize migration or disposal.
+All 17 ownership units are classified as `test` because the Owner confirms that
+FlowBiz has no real customers and the inspected records are internal
+development/testing records. Disposal remains prohibited. This classification does
+not authorize deletion, migration, tenant assignment, release, or PROD-01.
 
 ## 11. Remaining Migration Gates
 
-- Obtain explicit Owner classifications and rationale for R001-R017 through a
-  separate instruction after private source-evidence review.
-- Keep every unresolved or `unknown` unit quarantined as `UNKNOWN_OWNERSHIP`.
+- Owner classification is complete for R001-R017: all units are `test`.
+- Keep all classified test units isolated from production migration and tenant assignment; disposal remains prohibited.
 - Revalidate source hashes, row counts, relationships, and query-only controls before
   any later approved work.
 - Obtain separate explicit authority for tenant assignment, migration, retention, or
