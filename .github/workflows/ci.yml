@@ -36,7 +36,10 @@ jobs:
 
           app = create_app()
           workflow_routes = sorted(
-              route.path for route in app.routes if route.path.startswith("/v1/platform/workflows")
+              route_path
+              for route in app.routes
+              if isinstance((route_path := getattr(route, "path", None)), str)
+              and route_path.startswith("/v1/platform/workflows")
           )
           assert workflow_routes, "expected workflow routes to be registered"
           print("app-created", len(app.routes))
