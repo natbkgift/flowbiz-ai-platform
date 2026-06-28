@@ -35,8 +35,11 @@ jobs:
           from apps.platform_api.main import create_app
 
           app = create_app()
+          openapi_paths = app.openapi().get("paths", {})
           workflow_routes = sorted(
-              route.path for route in app.routes if route.path.startswith("/v1/platform/workflows")
+              path
+              for path in openapi_paths
+              if path.startswith("/v1/platform/workflows")
           )
           assert workflow_routes, "expected workflow routes to be registered"
           print("app-created", len(app.routes))
