@@ -1,0 +1,44 @@
+{
+  "schemas": [
+    "Project",
+    "OnboardingAggregate"
+  ],
+  "example": {
+    "project": {
+      "project_id": "prj_demo_0001",
+      "tenant_id": "ten_demo_0001",
+      "name": "Synthetic Ads Project",
+      "status": "active",
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    },
+    "onboarding": {
+      "project_id": "prj_demo_0001",
+      "business_profile": {
+        "business_name": "Example Business",
+        "industry": "Example Industry",
+        "website": null,
+        "description": "Synthetic business profile"
+      },
+      "products_services": [
+        {
+          "name": "Example Service",
+          "description": "Synthetic service",
+          "audience": "Example audience",
+          "differentiators": [
+            "Synthetic evidence only"
+          ]
+        }
+      ],
+      "campaign_goal": {
+        "objective": "leads",
+        "primary_kpi": "qualified inquiries",
+        "constraints": [
+          "No guaranteed outcomes"
+        ]
+      },
+      "completed": true,
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "DashboardSummary",
+  "example": {
+    "tenant_id": "ten_demo_0001",
+    "active_projects": 1,
+    "jobs_by_state": {
+      "succeeded": 3,
+      "failed": 1
+    },
+    "recent_results": [
+      "str_demo_0001"
+    ],
+    "generated_at": "2026-01-01T00:05:00Z"
+  }
+}

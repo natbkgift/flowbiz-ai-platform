@@ -1,0 +1,69 @@
+{
+  "schema": "Error",
+  "example": [
+    {
+      "http_status": 400,
+      "code": "BAD_REQUEST",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_400",
+      "retryable": false,
+      "details": {}
+    },
+    {
+      "http_status": 401,
+      "code": "UNAUTHENTICATED",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_401",
+      "retryable": false,
+      "details": {}
+    },
+    {
+      "http_status": 403,
+      "code": "FORBIDDEN",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_403",
+      "retryable": false,
+      "details": {}
+    },
+    {
+      "http_status": 404,
+      "code": "NOT_FOUND",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_404",
+      "retryable": false,
+      "details": {}
+    },
+    {
+      "http_status": 409,
+      "code": "CONFLICT",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_409",
+      "retryable": false,
+      "details": {}
+    },
+    {
+      "http_status": 422,
+      "code": "VALIDATION_FAILED",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_422",
+      "retryable": false,
+      "details": {}
+    },
+    {
+      "http_status": 429,
+      "code": "RATE_LIMITED",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_429",
+      "retryable": true,
+      "details": {}
+    },
+    {
+      "http_status": 503,
+      "code": "DEPENDENCY_UNAVAILABLE",
+      "message": "Synthetic safe error",
+      "request_id": "req_demo_503",
+      "retryable": true,
+      "details": {}
+    }
+  ]
+}

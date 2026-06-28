@@ -1,0 +1,50 @@
+{
+  "schemas": [
+    "Strategy",
+    "CreativeBrief",
+    "CampaignPlan"
+  ],
+  "example": {
+    "strategy": {
+      "strategy_id": "str_demo_0001",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "job_id": "job_demo_0001",
+      "summary": "Synthetic strategy",
+      "audiences": [
+        "Example audience"
+      ],
+      "messages": [
+        "Evidence-based example message"
+      ],
+      "created_at": "2026-01-01T00:02:00Z"
+    },
+    "creative_brief": {
+      "creative_brief_id": "crb_demo_0001",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "job_id": "job_demo_0002",
+      "concept": "Synthetic concept",
+      "hook": "Example hook",
+      "cta": "Learn more",
+      "requirements": [
+        "Avoid unsupported claims"
+      ],
+      "created_at": "2026-01-01T00:03:00Z"
+    },
+    "campaign_plan": {
+      "campaign_plan_id": "cpl_demo_0001",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "job_id": "job_demo_0003",
+      "objective": "leads",
+      "ad_sets": [
+        "Example audience group"
+      ],
+      "measurement_notes": [
+        "Measure without outcome guarantees"
+      ],
+      "created_at": "2026-01-01T00:04:00Z"
+    }
+  }
+}

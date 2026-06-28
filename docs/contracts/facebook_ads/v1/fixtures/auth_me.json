@@ -1,0 +1,18 @@
+{
+  "schema": "UserIdentity",
+  "example": {
+    "user_id": "usr_demo_0001",
+    "email": "demo@example.invalid",
+    "display_name": "Demo Marketer",
+    "memberships": [
+      {
+        "membership_id": "mem_demo_0001",
+        "tenant_id": "ten_demo_0001",
+        "user_id": "usr_demo_0001",
+        "role": "owner",
+        "status": "active",
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    ]
+  }
+}
