@@ -55,6 +55,21 @@ and must remain unstaged.
 
 SQLite library version: `3.45.1`.
 
+The table inventory was recomputed from each inspected database with the following
+query after confirming `PRAGMA query_only=ON`:
+
+```sql
+SELECT name, sql FROM sqlite_master
+WHERE type='table' AND name NOT LIKE 'sqlite_%'
+ORDER BY name;
+```
+
+| Database path alias | Actual user tables |
+| --- | ---: |
+| `platform_data/approval_gate.db` | 6 |
+| `platform_data/workflow_events.db` | 3 |
+| **Actual total** | **9** |
+
 ### `platform_data/approval_gate.db`
 
 | Table | Rows | Schema summary | Foreign keys |
@@ -73,6 +88,11 @@ SQLite library version: `3.45.1`.
 | `client_admission_policies` | 0 | `client_id TEXT PK`; enabled, quota, active-job, and timestamp fields | None declared |
 | `workflow_events` | 0 | `id INTEGER PK`; job/client/workflow/execution, status, timestamp, payload, and source fields | None declared |
 | `workflow_jobs` | 2 | `job_id TEXT PK`; client/workflow, status, timestamp, input, and metadata fields | None declared |
+
+`workflow_dispatches` is a runtime-defined table absent from the inspected snapshot.
+The code-defined source is `platform_app.dispatch_records.SQLiteDispatchRecordStore`,
+which creates the table when that store is initialized. Because the table is absent,
+no row count is assigned or inferred, and it is not represented as a zero-row table.
 
 Non-sensitive distributions observed:
 
@@ -95,6 +115,11 @@ Non-sensitive distributions observed:
 | **Observed total** | - | **17** |
 | **Reported total** | - | **17** |
 | **Difference** | - | **0** |
+
+The observed total includes rows from the 9 tables actually returned by
+`sqlite_master`. The absent runtime-defined `workflow_dispatches` table contributes
+no inspected table or row count to this reconciliation. No zero-row claim is made for
+that absent table.
 
 An ownership unit is one persisted source row because ownership classification and
 disposal authority must be explicit at row level. Supported relationships do not
