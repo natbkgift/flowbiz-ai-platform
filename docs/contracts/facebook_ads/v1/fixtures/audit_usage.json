@@ -1,0 +1,35 @@
+{
+  "schemas": [
+    "AuditEventPage",
+    "UsageSummary"
+  ],
+  "example": {
+    "audit": {
+      "items": [
+        {
+          "event_id": "evt_demo_0001",
+          "tenant_id": "ten_demo_0001",
+          "actor_id": "usr_demo_0001",
+          "event_type": "project.created",
+          "resource_type": "project",
+          "resource_id": "prj_demo_0001",
+          "request_id": "req_demo_0001",
+          "created_at": "2026-01-01T00:00:00Z"
+        }
+      ],
+      "page": {
+        "next_cursor": null,
+        "has_more": false
+      }
+    },
+    "usage": {
+      "tenant_id": "ten_demo_0001",
+      "period_start": "2026-01-01T00:00:00Z",
+      "period_end": "2026-02-01T00:00:00Z",
+      "jobs_submitted": 4,
+      "jobs_succeeded": 3,
+      "input_units": 1200,
+      "output_units": 800
+    }
+  }
+}

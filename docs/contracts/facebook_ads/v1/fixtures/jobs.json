@@ -1,0 +1,89 @@
+{
+  "schema": "Job",
+  "example": [
+    {
+      "job_id": "job_demo_0001",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "kind": "creative_brief",
+      "state": "queued",
+      "attempts": [],
+      "result_id": null,
+      "error": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:01:00Z"
+    },
+    {
+      "job_id": "job_demo_0002",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "kind": "campaign_plan",
+      "state": "running",
+      "attempts": [],
+      "result_id": null,
+      "error": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:01:00Z"
+    },
+    {
+      "job_id": "job_demo_0003",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "kind": "strategy",
+      "state": "succeeded",
+      "attempts": [],
+      "result_id": "res_demo_0001",
+      "error": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:01:00Z"
+    },
+    {
+      "job_id": "job_demo_0004",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "kind": "creative_brief",
+      "state": "failed",
+      "attempts": [],
+      "result_id": null,
+      "error": {
+        "code": "GENERATION_FAILED",
+        "message": "Synthetic failure",
+        "request_id": "req_demo_0001",
+        "retryable": true,
+        "details": {}
+      },
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:01:00Z"
+    },
+    {
+      "job_id": "job_demo_0005",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "kind": "campaign_plan",
+      "state": "dead_letter",
+      "attempts": [],
+      "result_id": null,
+      "error": {
+        "code": "GENERATION_FAILED",
+        "message": "Synthetic failure",
+        "request_id": "req_demo_0001",
+        "retryable": false,
+        "details": {}
+      },
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:01:00Z"
+    },
+    {
+      "job_id": "job_demo_0006",
+      "tenant_id": "ten_demo_0001",
+      "project_id": "prj_demo_0001",
+      "kind": "strategy",
+      "state": "cancelled",
+      "attempts": [],
+      "result_id": null,
+      "error": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:01:00Z"
+    }
+  ]
+}
