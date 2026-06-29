@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -28,6 +29,7 @@ from platform_app.db.base import Base
 
 Timestamp = DateTime(timezone=True)
 JsonDict = dict[str, Any]
+EMPTY_JSONB = text("'{}'::jsonb")
 
 ROLE_VALUES = "'owner','admin','marketer','viewer','service_identity'"
 JOB_STATE_VALUES = "'queued','running','succeeded','failed','dead_letter','cancelled'"
@@ -65,7 +67,12 @@ class Tenant(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="active",
+        server_default="active",
+    )
     created_at: Mapped[datetime] = mapped_column(
         Timestamp,
         nullable=False,
@@ -96,7 +103,12 @@ class Membership(Base):
         ForeignKey("roles.role", ondelete="RESTRICT"),
         nullable=False,
     )
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="active",
+        server_default="active",
+    )
     created_at: Mapped[datetime] = mapped_column(
         Timestamp,
         nullable=False,
@@ -119,7 +131,12 @@ class Project(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="active",
+        server_default="active",
+    )
     created_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("user_identities.user_id", ondelete="SET NULL")
     )
@@ -132,6 +149,7 @@ class Project(Base):
         Timestamp,
         nullable=False,
         server_default=func.now(),
+        onupdate=func.now(),
     )
 
     __table_args__ = (Index("ix_projects_tenant_project", "tenant_id", "project_id"),)
@@ -150,7 +168,12 @@ class BusinessProfile(Base):
         nullable=False,
     )
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    attributes: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    attributes: Mapped[JsonDict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=EMPTY_JSONB,
+    )
     created_at: Mapped[datetime] = mapped_column(
         Timestamp,
         nullable=False,
@@ -177,7 +200,12 @@ class ProductService(Base):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    attributes: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    attributes: Mapped[JsonDict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=EMPTY_JSONB,
+    )
 
     __table_args__ = (
         Index("ix_product_services_tenant_project", "tenant_id", "project_id"),
@@ -197,7 +225,12 @@ class CampaignGoal(Base):
         nullable=False,
     )
     goal_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    details: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    details: Mapped[JsonDict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=EMPTY_JSONB,
+    )
 
     __table_args__ = (Index("ix_campaign_goals_tenant_project", "tenant_id", "project_id"),)
 
@@ -214,7 +247,10 @@ class Strategy(Base):
         ForeignKey("projects.project_id", ondelete="CASCADE"),
         nullable=False,
     )
-    job_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs.job_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -241,7 +277,10 @@ class CreativeBrief(Base):
         ForeignKey("projects.project_id", ondelete="CASCADE"),
         nullable=False,
     )
-    job_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs.job_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -273,7 +312,10 @@ class CampaignPlan(Base):
         ForeignKey("projects.project_id", ondelete="CASCADE"),
         nullable=False,
     )
-    job_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs.job_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -308,7 +350,12 @@ class Job(Base):
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(160))
-    payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    payload: Mapped[JsonDict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=EMPTY_JSONB,
+    )
     result_ref: Mapped[str | None] = mapped_column(String(64))
     error: Mapped[JsonDict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
@@ -320,6 +367,7 @@ class Job(Base):
         Timestamp,
         nullable=False,
         server_default=func.now(),
+        onupdate=func.now(),
     )
 
     __table_args__ = (
@@ -367,7 +415,12 @@ class UsageRecord(Base):
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.job_id", ondelete="SET NULL"))
     usage_type: Mapped[str] = mapped_column(String(80), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    metadata_json: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    metadata_json: Mapped[JsonDict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=EMPTY_JSONB,
+    )
     created_at: Mapped[datetime] = mapped_column(
         Timestamp,
         nullable=False,
@@ -393,7 +446,12 @@ class ApprovalRequest(Base):
     requested_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("user_identities.user_id", ondelete="SET NULL")
     )
-    payload: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    payload: Mapped[JsonDict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=EMPTY_JSONB,
+    )
     created_at: Mapped[datetime] = mapped_column(
         Timestamp,
         nullable=False,
@@ -456,7 +514,12 @@ class AuditEvent(Base):
     resource_type: Mapped[str] = mapped_column(String(120), nullable=False)
     resource_id: Mapped[str] = mapped_column(String(120), nullable=False)
     request_id: Mapped[str | None] = mapped_column(String(120))
-    safe_details: Mapped[JsonDict] = mapped_column(JSONB, nullable=False, default=dict)
+    safe_details: Mapped[JsonDict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=EMPTY_JSONB,
+    )
     created_at: Mapped[datetime] = mapped_column(
         Timestamp,
         nullable=False,
