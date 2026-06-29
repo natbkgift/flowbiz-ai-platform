@@ -87,7 +87,7 @@ Run before review or merge gate:
 python -m ruff format --check .
 python -m ruff check .
 python -m pytest -q
-python -m pytest tests/test_supabase_auth.py -q
+python -m pytest tests/test_supabase_auth_validation.py -q
 ```
 
 ## Remaining Gates

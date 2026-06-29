@@ -89,7 +89,7 @@ def get_supabase_jwt_validator() -> SupabaseJwtValidator:
     return SupabaseJwtValidator(settings, build_supabase_jwks_provider(settings))
 
 
-async def get_supabase_principal(
+def get_supabase_principal(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
@@ -98,7 +98,7 @@ async def get_supabase_principal(
         get_settings(),
         validator=get_supabase_jwt_validator(),
     )
-    return await auth_dep(request, authorization, x_tenant_id)
+    return auth_dep(request, authorization, x_tenant_id)
 
 
 @lru_cache
