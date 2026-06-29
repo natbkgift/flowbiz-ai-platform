@@ -77,6 +77,7 @@ jobs:
           pg_dump "$TEST_DATABASE_LIBPQ_URL" --format=custom --file=/tmp/flowbiz-platform.dump
           dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
           createdb --host=localhost --username=postgres flowbiz_restore
+          psql "$RESTORE_DATABASE_LIBPQ_URL" -c "DROP SCHEMA public CASCADE;"
           pg_restore \
             --no-owner \
             --no-acl \
