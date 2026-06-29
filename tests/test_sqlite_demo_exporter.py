@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 
+import pytest
+
 from platform_app.data_export.sqlite_demo_exporter import ReadOnlySQLiteInventoryExporter
 
 
@@ -29,9 +31,5 @@ def test_read_only_sqlite_exporter_collects_synthetic_inventory(tmp_path) -> Non
 def test_read_only_sqlite_exporter_rejects_missing_database(tmp_path) -> None:
     exporter = ReadOnlySQLiteInventoryExporter({"missing": tmp_path / "missing.db"})
 
-    try:
+    with pytest.raises(FileNotFoundError):
         exporter.inspect()
-    except sqlite3.OperationalError as exc:
-        assert "unable to open database file" in str(exc)
-    else:  # pragma: no cover - defensive guard for SQLite behavior changes
-        raise AssertionError("expected sqlite3.OperationalError")
