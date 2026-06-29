@@ -53,7 +53,18 @@ jobs:
         run: alembic upgrade head
 
       - name: Run pytest
-        run: pytest -q
+        run: |
+          pytest -q --tb=short 2>&1 | tee pytest.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Upload pytest failure log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pytest-failure-log
+          path: pytest.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Rehearse downgrade and upgrade
         run: |
