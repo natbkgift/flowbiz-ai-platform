@@ -6,7 +6,6 @@ future gates; an X-Tenant-ID header is treated as an untrusted selector only.
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -201,7 +200,7 @@ class SupabaseJwtValidator:
         for key_data in jwks["keys"]:
             if key_data.get("kid") == kid:
                 try:
-                    return RSAAlgorithm.from_jwk(json.dumps(key_data))
+                    return RSAAlgorithm.from_jwk(key_data)
                 except Exception as exc:
                     raise _safe_unavailable("Supabase JWKS unavailable") from exc
         raise _safe_unauthorized("Invalid bearer token")
@@ -254,7 +253,12 @@ def supabase_auth_dependency_factory(
     settings: PlatformSettings,
     validator: SupabaseJwtValidator | None = None,
 ):
-    async def _dep(
+    active_validator = validator or SupabaseJwtValidator(
+        settings,
+        build_supabase_jwks_provider(settings),
+    )
+
+    def _dep(
         request: Request,
         authorization: str | None = Header(default=None, alias="Authorization"),
         x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
@@ -275,10 +279,6 @@ def supabase_auth_dependency_factory(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Unsupported Supabase auth mode: {settings.auth_mode}",
             )
-        active_validator = validator or SupabaseJwtValidator(
-            settings,
-            build_supabase_jwks_provider(settings),
-        )
         try:
             token = extract_bearer_token(authorization)
             return active_validator.validate(
