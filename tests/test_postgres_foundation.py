@@ -108,6 +108,7 @@ def test_tenant_scoped_repository_isolates_projects(postgres_engine: Engine) -> 
                 ),
             ]
         )
+        session.flush()
         TenantScopedRepository(session, "ten_a").create_project(
             project_id="prj_a",
             name="Tenant A Project",
@@ -129,6 +130,7 @@ def test_job_idempotency_is_tenant_scoped(postgres_engine: Engine) -> None:
                 Tenant(tenant_id="ten_b", slug="tenant-b", name="Tenant B"),
             ]
         )
+        session.flush()
         TenantScopedRepository(session, "ten_a").create_project(
             project_id="prj_a",
             name="Tenant A Project",
@@ -174,6 +176,7 @@ def test_audit_records_are_append_only_events(postgres_engine: Engine) -> None:
 
     with session_scope(factory) as session:
         session.add(Tenant(tenant_id="ten_a", slug="tenant-a", name="Tenant A"))
+        session.flush()
         repo = TenantScopedRepository(session, "ten_a")
         repo.append_audit_event(
             event_id="evt_1",
