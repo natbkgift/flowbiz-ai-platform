@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import os
 
-from alembic import command
-from alembic.config import Config
 import pytest
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
@@ -34,6 +32,7 @@ EXPECTED_TABLES = {
 }
 
 TENANT_TABLES = EXPECTED_TABLES - {"user_identities", "tenants", "roles"}
+TABLES_TO_TRUNCATE = tuple(sorted(EXPECTED_TABLES - {"roles"}))
 
 
 @pytest.fixture()
@@ -42,16 +41,27 @@ def postgres_engine() -> Engine:
     if not database_url:
         pytest.skip("TEST_DATABASE_URL is required for PostgreSQL foundation tests")
 
-    os.environ["TEST_DATABASE_URL"] = database_url
-    config = Config("alembic.ini")
     engine = create_engine(database_url, future=True)
-    command.downgrade(config, "base")
-    command.upgrade(config, "head")
+    if not _schema_exists(engine):
+        engine.dispose()
+        pytest.skip("PostgreSQL schema is not migrated; run alembic upgrade head")
+
+    _truncate_test_tables(engine)
     try:
         yield engine
     finally:
-        command.downgrade(config, "base")
+        _truncate_test_tables(engine)
         engine.dispose()
+
+
+def _schema_exists(engine: Engine) -> bool:
+    return EXPECTED_TABLES <= set(inspect(engine).get_table_names())
+
+
+def _truncate_test_tables(engine: Engine) -> None:
+    table_list = ", ".join(f'"{table_name}"' for table_name in TABLES_TO_TRUNCATE)
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE"))
 
 
 def test_alembic_upgrade_creates_expected_tenant_scoped_schema(postgres_engine: Engine) -> None:
