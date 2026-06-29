@@ -74,18 +74,31 @@ jobs:
 
       - name: Rehearse pg_dump and pg_restore
         run: |
-          pg_dump "$TEST_DATABASE_LIBPQ_URL" --format=custom --file=/tmp/flowbiz-platform.dump
-          dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
-          createdb --host=localhost --username=postgres flowbiz_restore
-          psql "$RESTORE_DATABASE_LIBPQ_URL" -c "DROP SCHEMA public CASCADE;"
-          pg_restore \
-            --no-owner \
-            --no-acl \
-            --exit-on-error \
-            --dbname="$RESTORE_DATABASE_LIBPQ_URL" \
-            /tmp/flowbiz-platform.dump
-          psql "$RESTORE_DATABASE_LIBPQ_URL" -c "SELECT COUNT(*) FROM alembic_version;"
-          dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
+          set -o pipefail
+          {
+            pg_dump "$TEST_DATABASE_LIBPQ_URL" --format=custom --file=/tmp/flowbiz-platform.dump
+            dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
+            createdb --host=localhost --username=postgres flowbiz_restore
+            psql "$RESTORE_DATABASE_LIBPQ_URL" -c "DROP SCHEMA public CASCADE;"
+            pg_restore \
+              --no-owner \
+              --no-acl \
+              --exit-on-error \
+              --dbname="$RESTORE_DATABASE_LIBPQ_URL" \
+              /tmp/flowbiz-platform.dump
+            psql "$RESTORE_DATABASE_LIBPQ_URL" -c "SELECT COUNT(*) FROM alembic_version;"
+            dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
+          } 2>&1 | tee restore.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Upload restore failure log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: restore-failure-log
+          path: restore.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Smoke check app creation
         run: |
