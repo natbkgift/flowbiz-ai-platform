@@ -1,22 +1,27 @@
 <!-- markdownlint-disable MD013 -->
 
-# PROD-07 Platform Core v0.2.2 Exact Pin Foundation
+# PROD-07 Platform Core v0.2.2 Constraints-Only Gate
 
 ## Status
 
-`DRAFT_PIN_FOUNDATION`
+`DRAFT_CONSTRAINTS_ONLY_GATE`
 
 ## Objective
 
-PROD-07 establishes the Platform dependency foundation for importing the verified `flowbiz-ai-core` library used by later job, agent, provider and runtime integration PRs.
+PROD-07 records the approved Platform release constraint for `flowbiz-ai-core` v0.2.2 without installing the private Core repository in Platform CI.
 
-This PR pins Core to the verified release target only. It does not wire jobs, agents, providers, business routes, Product BFF integration or runtime execution paths.
+This PR intentionally does not add a Core package dependency to `pyproject.toml`. Real installed Core pin validation is deferred until a separately authorized package registry or CI credential path exists.
 
 ## Source of Truth
 
+- Core package: `flowbiz-ai-core`
+- Core version constraint: `0.2.2`
 - Core verified tag: `v0.2.2`
-- Core tag target: `1fb5fe899955968d4c190e3c085a2271e8cf455f`
-- Platform dependency pin: exact Git commit reference in `pyproject.toml`
+- Core verified commit: `1fb5fe899955968d4c190e3c085a2271e8cf455f`
+- Gate type: `constraints-only`
+- Private Core install in Platform CI: `DEFERRED`
+- Package registry publication: `NOT_PERFORMED`
+- Downstream runtime pin: `NOT_PERFORMED`
 - Product contract direction remains: `Browser -> Next.js BFF -> Platform API`
 - Platform remains the business persistence and enforcement owner.
 
@@ -24,13 +29,16 @@ This PR pins Core to the verified release target only. It does not wire jobs, ag
 
 Included:
 
-- Add `flowbiz-ai-core` as a Platform dependency pinned to the exact verified Core commit.
-- Add smoke tests proving the installed Core distribution reports version `0.2.2`.
-- Add smoke tests proving Platform can import representative Core runtime and contract primitives.
+- Record the verified Core v0.2.2 release constraint for Platform.
+- Assert that Platform CI does not install private Core through `pyproject.toml`.
+- Assert that the PROD-07 evidence document carries the expected Core package, version and verified commit.
 - Add evidence documentation for future release gates.
 
 Excluded:
 
+- Installing `flowbiz-ai-core` from the private Core repository in Platform CI.
+- Adding secrets, credentials, GitHub App tokens or workflow bypasses.
+- Publishing Core to any package registry.
 - Product repository changes.
 - Core repository changes.
 - Business route wiring.
@@ -38,31 +46,34 @@ Excluded:
 - LLM provider setup, model selection or credentials.
 - Database schema/data changes, SQLite inspection or demo-data migration.
 - Deployment, package publication, tag creation or GitHub Release creation.
+- Downstream runtime pinning.
 - PROD-08/09/10/19 work.
 
-## Dependency Pin
+## Constraint Pin
 
-The active dependency is pinned as a PEP 508 direct reference:
+The active PROD-07 constraint is:
 
-```toml
-"flowbiz-ai-core @ git+https://github.com/natbkgift/flowbiz-ai-core.git@1fb5fe899955968d4c190e3c085a2271e8cf455f"
+```text
+flowbiz-ai-core==0.2.2 @ 1fb5fe899955968d4c190e3c085a2271e8cf455f
 ```
 
-This intentionally uses the verified commit target rather than a mutable branch name. The `v0.2.2` tag has already been verified to point to the same commit in the Core release lane.
+This is a release constraint only. It is not an installed Platform dependency and it is not a package source that Platform CI consumes.
 
-## Compatibility Smoke
+## Non-Install CI Proof
 
 `tests/test_core_v022_pin.py` verifies:
 
-- `importlib.metadata.version("flowbiz-ai-core") == "0.2.2"`.
-- `packages.core.retry.RetryPolicy` imports and can be used with `run_with_retry`.
-- `packages.core.contracts.devx.SDKGeneratorTarget` imports and carries the expected `0.2.2` default package version.
+- `pyproject.toml` does not include `flowbiz-ai-core` as an install dependency.
+- `pyproject.toml` does not include a direct reference to `natbkgift/flowbiz-ai-core`.
+- This evidence document records the expected Core package, version and verified commit.
+- Private Core install in Platform CI remains deferred.
+- Package registry publication remains not performed.
 
-These imports are intentionally narrow. They prove the dependency is installable and compatible without starting agents, jobs, providers or runtime business execution.
+These checks intentionally avoid importing `packages.core.*`. Platform install compatibility must be proven later after an Owner-authorized registry/access path exists.
 
 ## Security and Supply Chain Position
 
-- The dependency is exact-commit pinned to reduce mutable supply-chain risk.
+- No private Core repository access is required by Platform CI in this PR.
 - No secrets, production credentials or model names are introduced.
 - No Core HTTP API is introduced into the business execution path.
 - No runtime permission, tenant or RBAC behavior changes are introduced.
@@ -83,6 +94,7 @@ GitHub CI must also pass PostgreSQL migration, pytest, downgrade/upgrade rehears
 
 ## Remaining Gates
 
+- Real installed Core pin requires a separately authorized package registry or CI credential path.
 - PROD-08 job/worker foundation requires separate Owner authorization.
 - Agent/provider wiring requires separate Owner authorization.
 - Business `/v1` route implementation remains separate.
