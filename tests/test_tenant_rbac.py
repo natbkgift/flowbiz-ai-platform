@@ -14,6 +14,7 @@ from platform_app.tenant_rbac import (
     RbacAction,
     RbacPolicy,
     TenantMembershipResolver,
+    TenantPrincipal,
     TenantRbacError,
     allowed_actions_for_role,
     assert_all_roles_have_actions,
@@ -183,20 +184,21 @@ def test_role_action_matrix_is_explicit() -> None:
 
 
 def test_require_tenant_action_accepts_resolved_principal() -> None:
-    tenant_principal = TenantMembershipResolver().policy
-    assert tenant_principal.allows(PlatformRole.ADMIN, RbacAction.APPROVAL_DECIDE)
-
-    resolved = TenantMembershipResolver().policy
-    with pytest.raises(TenantRbacError):
-        resolved.require(PlatformRole.VIEWER, RbacAction.APPROVAL_DECIDE)
-
-    from platform_app.tenant_rbac import TenantPrincipal
-
-    principal = TenantPrincipal(
+    principal_admin = TenantPrincipal(
         subject="sub",
         user_id="usr",
         tenant_id="ten",
         membership_id="mem",
         role=PlatformRole.ADMIN,
     )
-    require_tenant_action(principal, RbacAction.APPROVAL_DECIDE)
+    require_tenant_action(principal_admin, RbacAction.APPROVAL_DECIDE)
+
+    principal_viewer = TenantPrincipal(
+        subject="sub",
+        user_id="usr",
+        tenant_id="ten",
+        membership_id="mem",
+        role=PlatformRole.VIEWER,
+    )
+    with pytest.raises(TenantRbacError):
+        require_tenant_action(principal_viewer, RbacAction.APPROVAL_DECIDE)
