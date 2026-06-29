@@ -12,6 +12,7 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
   "alembic>=1.13,<2",
   "fastapi",
+  "flowbiz-ai-core @ git+https://github.com/natbkgift/flowbiz-ai-core.git@1fb5fe899955968d4c190e3c085a2271e8cf455f",
   "httpx",
   "PyJWT[crypto]>=2.8,<3",
   "psycopg[binary]>=3,<4",
