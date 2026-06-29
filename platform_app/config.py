@@ -48,6 +48,8 @@ class PlatformSettings(BaseSettings):
     workflow_callback_shared_secret: str = Field(default="")
     platform_public_base_url: str = Field(default="http://localhost:8100")
 
+    database_url: SecretStr | None = Field(default=None)
+
     core_base_url: str = Field(default="")
     core_service_token: SecretStr | None = Field(default=None)
     core_timeout_seconds: float = Field(default=2.0)
@@ -84,6 +86,12 @@ class PlatformSettings(BaseSettings):
         if self.operator_ui_token is None:
             return ""
         return self.operator_ui_token.get_secret_value()
+
+    @property
+    def database_url_value(self) -> str:
+        if self.database_url is None:
+            return ""
+        return self.database_url.get_secret_value()
 
     @property
     def is_production(self) -> bool:
