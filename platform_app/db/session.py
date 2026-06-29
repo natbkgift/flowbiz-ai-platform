@@ -7,6 +7,7 @@ not wire PostgreSQL into FastAPI routes or replace existing SQLite stores.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -40,6 +41,7 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 
+@contextmanager
 def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:
     """Yield a transaction-bound session and roll back on errors."""
 
