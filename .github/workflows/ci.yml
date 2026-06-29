@@ -28,6 +28,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/flowbiz_test
       TEST_DATABASE_LIBPQ_URL: postgresql://postgres:postgres@localhost:5432/flowbiz_test
+      RESTORE_DATABASE_LIBPQ_URL: postgresql://postgres:postgres@localhost:5432/flowbiz_restore
       PGPASSWORD: postgres
 
     steps:
@@ -74,9 +75,16 @@ jobs:
       - name: Rehearse pg_dump and pg_restore
         run: |
           pg_dump "$TEST_DATABASE_LIBPQ_URL" --format=custom --file=/tmp/flowbiz-platform.dump
+          dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
           createdb --host=localhost --username=postgres flowbiz_restore
-          pg_restore --dbname=postgresql://postgres:postgres@localhost:5432/flowbiz_restore /tmp/flowbiz-platform.dump
-          dropdb --host=localhost --username=postgres flowbiz_restore
+          pg_restore \
+            --no-owner \
+            --no-acl \
+            --exit-on-error \
+            --dbname="$RESTORE_DATABASE_LIBPQ_URL" \
+            /tmp/flowbiz-platform.dump
+          psql "$RESTORE_DATABASE_LIBPQ_URL" -c "SELECT COUNT(*) FROM alembic_version;"
+          dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
 
       - name: Smoke check app creation
         run: |
