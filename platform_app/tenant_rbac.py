@@ -116,7 +116,7 @@ class TenantPrincipal(BaseModel):
 class RbacPolicy(BaseModel):
     """Fail-closed RBAC policy with explicit action-to-role mappings."""
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+    model_config = ConfigDict(frozen=True)
 
     allowed_roles: dict[RbacAction, frozenset[PlatformRole]] = Field(
         default_factory=lambda: dict(ACTION_ALLOWED_ROLES)
@@ -134,11 +134,14 @@ class RbacPolicy(BaseModel):
             raise TenantRbacError(HTTPStatus.FORBIDDEN, "Permission denied")
 
 
+DEFAULT_POLICY = RbacPolicy()
+
+
 class TenantMembershipResolver:
     """Resolve Supabase identity + tenant selector into a tenant principal."""
 
     def __init__(self, policy: RbacPolicy | None = None) -> None:
-        self._policy = policy or RbacPolicy()
+        self._policy = policy or DEFAULT_POLICY
 
     @property
     def policy(self) -> RbacPolicy:
@@ -199,7 +202,7 @@ def require_tenant_action(
 ) -> None:
     """Require an action for an already resolved tenant principal."""
 
-    active_policy = policy or RbacPolicy()
+    active_policy = policy or DEFAULT_POLICY
     active_policy.require(tenant_principal.role, action)
 
 
