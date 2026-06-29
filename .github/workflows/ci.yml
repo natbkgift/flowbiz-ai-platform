@@ -80,7 +80,7 @@ jobs:
               createdb --host=127.0.0.1 --username=postgres flowbiz_restore
             docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
               psql --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
-              -c "DROP SCHEMA public CASCADE;"
+              -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
             docker run --rm --network host -e PGPASSWORD=postgres -v /tmp:/backup postgres:17 \
               pg_restore --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
               --no-owner --no-acl --exit-on-error /backup/flowbiz-platform.dump
