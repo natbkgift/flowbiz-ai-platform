@@ -40,6 +40,14 @@ class PlatformSettings(BaseSettings):
     auth_sqlite_path: str = Field(default="platform_data/platform_auth.db")
     required_api_keys: str = Field(default="")
     auth_api_keys_json: str = Field(default="[]")
+
+    supabase_jwt_issuer: str = Field(default="")
+    supabase_jwt_audience: str = Field(default="")
+    supabase_jwks_url: str = Field(default="")
+    supabase_jwks_cache_seconds: int = Field(default=300)
+    supabase_jwks_timeout_seconds: float = Field(default=2.0)
+    supabase_jwt_clock_skew_seconds: int = Field(default=30)
+
     workflow_events_sqlite_path: str = Field(
         default="platform_data/workflow_events.db"
     )
@@ -102,6 +110,22 @@ class PlatformSettings(BaseSettings):
         if self.docs_enabled is not None:
             return self.docs_enabled
         return not self.is_production
+
+    @property
+    def supabase_auth_configured(self) -> bool:
+        return bool(
+            self.supabase_jwt_issuer.strip()
+            and self.supabase_jwt_audience.strip()
+            and self.supabase_jwks_url.strip()
+        )
+
+    @property
+    def auth_mode_supported(self) -> bool:
+        if self.auth_mode in {"disabled", "api_key"}:
+            return True
+        if self.auth_mode == "supabase":
+            return self.supabase_auth_configured
+        return False
 
     def csv(self, raw: str) -> list[str]:
         return [item.strip() for item in raw.split(",") if item.strip()]
