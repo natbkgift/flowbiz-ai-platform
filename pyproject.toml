@@ -10,10 +10,13 @@ authors = [{ name = "flowbiz.cloud" }]
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "alembic>=1.13,<2",
   "fastapi",
   "httpx",
+  "psycopg[binary]>=3,<4",
   "pydantic-settings",
   "redis",
+  "sqlalchemy>=2,<3",
   "uvicorn[standard]",
 ]
 
