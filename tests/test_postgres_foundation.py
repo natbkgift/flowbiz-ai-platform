@@ -174,5 +174,9 @@ def test_audit_records_are_append_only_events(postgres_engine: Engine) -> None:
         )
 
     with session_scope(factory) as session:
-        events = session.execute(select(AuditEvent).where(AuditEvent.tenant_id == "ten_a")).scalars().all()
+        events = session.execute(
+            select(AuditEvent)
+            .where(AuditEvent.tenant_id == "ten_a")
+            .order_by(AuditEvent.event_id)
+        ).scalars().all()
         assert [event.event_id for event in events] == ["evt_1", "evt_2"]
