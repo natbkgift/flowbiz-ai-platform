@@ -72,10 +72,18 @@ def _inspect_tables(database_alias: str, path: Path) -> list[SQLiteTableInventor
             SQLiteTableInventory(
                 database_alias=database_alias,
                 table_name=table_name,
-                row_count=int(conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]),
+                row_count=int(
+                    conn.execute(
+                        f"SELECT COUNT(*) FROM {_quote_identifier(table_name)}"
+                    ).fetchone()[0]
+                ),
             )
             for table_name in table_names
         ]
+
+
+def _quote_identifier(identifier: str) -> str:
+    return f'"{identifier.replace(chr(34), chr(34) * 2)}"'
 
 
 def _sha256(path: Path) -> str:
