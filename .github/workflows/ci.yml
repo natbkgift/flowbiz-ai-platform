@@ -27,8 +27,6 @@ jobs:
 
     env:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/flowbiz_test
-      TEST_DATABASE_LIBPQ_URL: postgresql://postgres:postgres@localhost:5432/flowbiz_test
-      RESTORE_DATABASE_LIBPQ_URL: postgresql://postgres:postgres@localhost:5432/flowbiz_restore
       PGPASSWORD: postgres
 
     steps:
@@ -40,9 +38,6 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Install dependencies
         run: python -m pip install -e .[dev]
@@ -76,18 +71,24 @@ jobs:
         run: |
           set -o pipefail
           {
-            pg_dump "$TEST_DATABASE_LIBPQ_URL" --format=custom --file=/tmp/flowbiz-platform.dump
-            dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
-            createdb --host=localhost --username=postgres flowbiz_restore
-            psql "$RESTORE_DATABASE_LIBPQ_URL" -c "DROP SCHEMA public CASCADE;"
-            pg_restore \
-              --no-owner \
-              --no-acl \
-              --exit-on-error \
-              --dbname="$RESTORE_DATABASE_LIBPQ_URL" \
-              /tmp/flowbiz-platform.dump
-            psql "$RESTORE_DATABASE_LIBPQ_URL" -c "SELECT COUNT(*) FROM alembic_version;"
-            dropdb --if-exists --host=localhost --username=postgres flowbiz_restore
+            docker run --rm --network host -e PGPASSWORD=postgres -v /tmp:/backup postgres:17 \
+              pg_dump --host=127.0.0.1 --username=postgres --dbname=flowbiz_test \
+              --format=custom --file=/backup/flowbiz-platform.dump
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              dropdb --if-exists --host=127.0.0.1 --username=postgres flowbiz_restore
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              createdb --host=127.0.0.1 --username=postgres flowbiz_restore
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              psql --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
+              -c "DROP SCHEMA public CASCADE;"
+            docker run --rm --network host -e PGPASSWORD=postgres -v /tmp:/backup postgres:17 \
+              pg_restore --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
+              --no-owner --no-acl --exit-on-error /backup/flowbiz-platform.dump
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              psql --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
+              -c "SELECT COUNT(*) FROM alembic_version;"
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              dropdb --if-exists --host=127.0.0.1 --username=postgres flowbiz_restore
           } 2>&1 | tee restore.log
           test ${PIPESTATUS[0]} -eq 0
 
