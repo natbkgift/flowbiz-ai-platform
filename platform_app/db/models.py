@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -23,7 +22,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_app.db.base import Base
 
@@ -51,8 +50,6 @@ class UserIdentity(Base):
         server_default=func.now(),
     )
 
-    memberships: Mapped[list[Membership]] = relationship(back_populates="user")
-
     __table_args__ = (
         UniqueConstraint(
             "provider",
@@ -74,9 +71,6 @@ class Tenant(Base):
         nullable=False,
         server_default=func.now(),
     )
-
-    memberships: Mapped[list[Membership]] = relationship(back_populates="tenant")
-    projects: Mapped[list[Project]] = relationship(back_populates="tenant")
 
 
 class Role(Base):
@@ -109,9 +103,6 @@ class Membership(Base):
         server_default=func.now(),
     )
 
-    tenant: Mapped[Tenant] = relationship(back_populates="memberships")
-    user: Mapped[UserIdentity] = relationship(back_populates="memberships")
-
     __table_args__ = (
         CheckConstraint(f"role IN ({ROLE_VALUES})", name="membership_role_valid"),
         UniqueConstraint("tenant_id", "user_id", name="uq_memberships_tenant_user"),
@@ -142,8 +133,6 @@ class Project(Base):
         nullable=False,
         server_default=func.now(),
     )
-
-    tenant: Mapped[Tenant] = relationship(back_populates="projects")
 
     __table_args__ = (Index("ix_projects_tenant_project", "tenant_id", "project_id"),)
 
@@ -333,8 +322,6 @@ class Job(Base):
         server_default=func.now(),
     )
 
-    attempts: Mapped[list[JobAttempt]] = relationship(back_populates="job")
-
     __table_args__ = (
         CheckConstraint(f"kind IN ({JOB_KIND_VALUES})", name="job_kind_valid"),
         CheckConstraint(f"state IN ({JOB_STATE_VALUES})", name="job_state_valid"),
@@ -361,8 +348,6 @@ class JobAttempt(Base):
     error: Mapped[JsonDict | None] = mapped_column(JSONB)
     started_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(Timestamp)
-
-    job: Mapped[Job] = relationship(back_populates="attempts")
 
     __table_args__ = (
         CheckConstraint(f"state IN ({JOB_STATE_VALUES})", name="job_attempt_state_valid"),
