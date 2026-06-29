@@ -33,6 +33,8 @@ EXPECTED_TABLES = {
 
 TENANT_TABLES = EXPECTED_TABLES - {"user_identities", "tenants", "roles"}
 TABLES_TO_TRUNCATE = tuple(sorted(EXPECTED_TABLES - {"roles"}))
+REQUIRED_JOB_STATES = {"queued", "running", "succeeded", "failed", "dead_letter", "cancelled"}
+REQUIRED_JOB_KINDS = {"strategy", "creative_brief", "campaign_plan"}
 
 
 @pytest.fixture()
@@ -81,8 +83,13 @@ def test_alembic_upgrade_creates_expected_tenant_scoped_schema(postgres_engine: 
         ]
         assert any(columns[0] == "tenant_id" for columns in index_columns), table_name
 
-    job_check_names = {check["name"] for check in inspector.get_check_constraints("jobs")}
-    assert {"job_kind_valid", "job_state_valid"} <= job_check_names
+    job_constraints = " ".join(
+        check.get("sqltext", "") for check in inspector.get_check_constraints("jobs")
+    )
+    for expected_state in REQUIRED_JOB_STATES:
+        assert expected_state in job_constraints
+    for expected_kind in REQUIRED_JOB_KINDS:
+        assert expected_kind in job_constraints
 
 
 def test_tenant_scoped_repository_isolates_projects(postgres_engine: Engine) -> None:
