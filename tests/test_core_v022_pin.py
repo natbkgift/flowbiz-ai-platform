@@ -1,30 +1,41 @@
 from __future__ import annotations
 
-from importlib.metadata import version
-
-from packages.core.contracts.devx import SDKGeneratorTarget
-from packages.core.retry import RetryPolicy, run_with_retry
+from pathlib import Path
+import tomllib
 
 
-CORE_DISTRIBUTION = "flowbiz-ai-core"
+CORE_PACKAGE = "flowbiz-ai-core"
 EXPECTED_CORE_VERSION = "0.2.2"
+VERIFIED_CORE_COMMIT = "1fb5fe899955968d4c190e3c085a2271e8cf455f"
+PRIVATE_CORE_REPO = "natbkgift/flowbiz-ai-core"
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
+EVIDENCE_DOC_PATH = PROJECT_ROOT / "docs" / "platform" / "PROD-07_CORE_V022_PIN_FOUNDATION.md"
 
 
-def test_core_distribution_version_is_pinned_to_v022() -> None:
-    assert version(CORE_DISTRIBUTION) == EXPECTED_CORE_VERSION
+def _project_dependencies() -> list[str]:
+    pyproject = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
+    return list(pyproject["project"].get("dependencies", []))
 
 
-def test_core_runtime_and_contract_imports_are_platform_compatible() -> None:
-    policy = RetryPolicy(max_retries=1, timeout_seconds=0.0, backoff_seconds=0.0)
-    result = run_with_retry(lambda: "platform-compatible", policy)
+def _evidence_doc() -> str:
+    return EVIDENCE_DOC_PATH.read_text(encoding="utf-8")
 
-    assert result.success is True
-    assert result.attempts == 1
-    assert result.result == "platform-compatible"
-    assert result.error is None
 
-    sdk_target = SDKGeneratorTarget(
-        language="python",
-        package_name="flowbiz-ai-platform",
-    )
-    assert sdk_target.package_version == EXPECTED_CORE_VERSION
+def test_platform_ci_does_not_install_private_core_dependency() -> None:
+    dependencies = _project_dependencies()
+
+    assert all(CORE_PACKAGE not in dependency for dependency in dependencies)
+    assert all(PRIVATE_CORE_REPO not in dependency for dependency in dependencies)
+
+
+def test_prod_07_records_core_release_constraint_without_installing_core() -> None:
+    evidence = _evidence_doc()
+
+    assert "constraints-only" in evidence
+    assert f"Core package: `{CORE_PACKAGE}`" in evidence
+    assert f"Core version constraint: `{EXPECTED_CORE_VERSION}`" in evidence
+    assert f"Core verified commit: `{VERIFIED_CORE_COMMIT}`" in evidence
+    assert "Private Core install in Platform CI: `DEFERRED`" in evidence
+    assert "Package registry publication: `NOT_PERFORMED`" in evidence
