@@ -10,6 +10,25 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flowbiz_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/flowbiz_test
+      PGPASSWORD: postgres
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -26,8 +45,61 @@ jobs:
       - name: Run Ruff
         run: ruff check .
 
+      - name: Run Alembic upgrade
+        run: alembic upgrade head
+
       - name: Run pytest
-        run: pytest -q
+        run: |
+          pytest -q --tb=short 2>&1 | tee pytest.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Upload pytest failure log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pytest-failure-log
+          path: pytest.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Rehearse downgrade and upgrade
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: Rehearse pg_dump and pg_restore
+        run: |
+          set -o pipefail
+          {
+            docker run --rm --network host -e PGPASSWORD=postgres -v /tmp:/backup postgres:17 \
+              pg_dump --host=127.0.0.1 --username=postgres --dbname=flowbiz_test \
+              --format=custom --file=/backup/flowbiz-platform.dump
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              dropdb --if-exists --host=127.0.0.1 --username=postgres flowbiz_restore
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              createdb --host=127.0.0.1 --username=postgres flowbiz_restore
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              psql --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
+              -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+            docker run --rm --network host -e PGPASSWORD=postgres -v /tmp:/backup postgres:17 \
+              pg_restore --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
+              --no-owner --no-acl --exit-on-error /backup/flowbiz-platform.dump
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              psql --host=127.0.0.1 --username=postgres --dbname=flowbiz_restore \
+              -c "SELECT COUNT(*) FROM alembic_version;"
+            docker run --rm --network host -e PGPASSWORD=postgres postgres:17 \
+              dropdb --if-exists --host=127.0.0.1 --username=postgres flowbiz_restore
+          } 2>&1 | tee restore.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Upload restore failure log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: restore-failure-log
+          path: restore.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Smoke check app creation
         run: |
