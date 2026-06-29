@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from platform_app.admission_policy import SQLiteAdmissionPolicyStore
 from platform_app.approval_audit import SQLiteApprovalAuditStore
@@ -13,16 +13,20 @@ from platform_app.approval_records import (
     SQLiteApprovalRecordStore,
     resolve_approval_gate_db_path,
 )
-from platform_app.auth import auth_dependency_factory
 from platform_app.api_key_store import SQLiteAPIKeyStore, resolve_auth_db_path
+from platform_app.auth import auth_dependency_factory, hash_api_key_secret
 from platform_app.config import get_settings
 from platform_app.connector_store import SQLiteConnectorStore
+from platform_app.dispatch_records import SQLiteDispatchRecordStore, build_runner_dispatcher
+from platform_app.job_records import SQLiteJobRecordStore
 from platform_app.llm import build_llm_adapter
 from platform_app.rate_limit import build_rate_limiter
 from platform_app.secrets import build_secret_provider
-from platform_app.auth import hash_api_key_secret
-from platform_app.dispatch_records import SQLiteDispatchRecordStore, build_runner_dispatcher
-from platform_app.job_records import SQLiteJobRecordStore
+from platform_app.supabase_auth import (
+    SupabaseJwtValidator,
+    build_supabase_jwks_provider,
+    supabase_auth_dependency_factory,
+)
 from platform_app.workflow_events import (
     SQLiteWorkflowEventStore,
     resolve_workflow_events_db_path,
@@ -77,6 +81,24 @@ async def get_request_principal(
 ):
     auth_dep = auth_dependency_factory(get_settings(), store=get_api_key_store())
     return await auth_dep(x_api_key)
+
+
+@lru_cache
+def get_supabase_jwt_validator() -> SupabaseJwtValidator:
+    settings = get_settings()
+    return SupabaseJwtValidator(settings, build_supabase_jwks_provider(settings))
+
+
+async def get_supabase_principal(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+):
+    auth_dep = supabase_auth_dependency_factory(
+        get_settings(),
+        validator=get_supabase_jwt_validator(),
+    )
+    return await auth_dep(request, authorization, x_tenant_id)
 
 
 @lru_cache
