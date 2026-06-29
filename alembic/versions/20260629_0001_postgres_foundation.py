@@ -25,6 +25,19 @@ APPROVAL_STATUS_VALUES = "'pending','approved','rejected','cancelled'"
 APPROVAL_DECISION_VALUES = "'approve','reject'"
 
 
+def jsonb() -> postgresql.JSONB:
+    return postgresql.JSONB(astext_type=sa.Text())
+
+
+def jsonb_default_column(name: str) -> sa.Column[object]:
+    return sa.Column(
+        name,
+        jsonb(),
+        nullable=False,
+        server_default=sa.text("'{}'::jsonb"),
+    )
+
+
 def tenant_id_column() -> sa.Column[str]:
     return sa.Column(
         "tenant_id",
@@ -34,15 +47,13 @@ def tenant_id_column() -> sa.Column[str]:
     )
 
 
-def timestamps() -> list[sa.Column[object]]:
-    return [
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        )
-    ]
+def created_at_column() -> sa.Column[object]:
+    return sa.Column(
+        "created_at",
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.text("now()"),
+    )
 
 
 def upgrade() -> None:
@@ -53,7 +64,7 @@ def upgrade() -> None:
         sa.Column("external_subject", sa.String(length=256), nullable=False),
         sa.Column("email", sa.String(length=320), nullable=True),
         sa.Column("display_name", sa.String(length=160), nullable=True),
-        *timestamps(),
+        created_at_column(),
         sa.UniqueConstraint(
             "provider",
             "external_subject",
@@ -67,7 +78,7 @@ def upgrade() -> None:
         sa.Column("slug", sa.String(length=120), nullable=False, unique=True),
         sa.Column("name", sa.String(length=200), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="active"),
-        *timestamps(),
+        created_at_column(),
     )
 
     op.create_table(
@@ -108,7 +119,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="active"),
-        *timestamps(),
+        created_at_column(),
         sa.CheckConstraint(f"role IN ({ROLE_VALUES})", name="membership_role_valid"),
         sa.UniqueConstraint("tenant_id", "user_id", name="uq_memberships_tenant_user"),
     )
@@ -126,12 +137,7 @@ def upgrade() -> None:
             sa.ForeignKey("user_identities.user_id", ondelete="SET NULL"),
             nullable=True,
         ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
+        created_at_column(),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
@@ -152,13 +158,8 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("summary", sa.Text(), nullable=False),
-        sa.Column(
-            "attributes",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
-        *timestamps(),
+        jsonb_default_column("attributes"),
+        created_at_column(),
         sa.UniqueConstraint("tenant_id", "project_id", name="uq_business_profiles_project"),
     )
     op.create_index(
@@ -179,12 +180,7 @@ def upgrade() -> None:
         ),
         sa.Column("name", sa.String(length=200), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column(
-            "attributes",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
+        jsonb_default_column("attributes"),
     )
     op.create_index(
         "ix_product_services_tenant_project",
@@ -203,14 +199,43 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("goal_type", sa.String(length=80), nullable=False),
-        sa.Column(
-            "details",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
+        jsonb_default_column("details"),
     )
-    op.create_index("ix_campaign_goals_tenant_project", "campaign_goals", ["tenant_id", "project_id"])
+    op.create_index(
+        "ix_campaign_goals_tenant_project",
+        "campaign_goals",
+        ["tenant_id", "project_id"],
+    )
+
+    op.create_table(
+        "jobs",
+        sa.Column("job_id", sa.String(length=64), primary_key=True),
+        tenant_id_column(),
+        sa.Column(
+            "project_id",
+            sa.String(length=64),
+            sa.ForeignKey("projects.project_id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("kind", sa.String(length=32), nullable=False),
+        sa.Column("state", sa.String(length=32), nullable=False),
+        sa.Column("idempotency_key", sa.String(length=160), nullable=True),
+        jsonb_default_column("payload"),
+        sa.Column("result_ref", sa.String(length=64), nullable=True),
+        sa.Column("error", jsonb(), nullable=True),
+        created_at_column(),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.CheckConstraint(f"kind IN ({JOB_KIND_VALUES})", name="job_kind_valid"),
+        sa.CheckConstraint(f"state IN ({JOB_STATE_VALUES})", name="job_state_valid"),
+        sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_jobs_tenant_idempotency"),
+    )
+    op.create_index("ix_jobs_tenant_state", "jobs", ["tenant_id", "state"])
+    op.create_index("ix_jobs_tenant_project", "jobs", ["tenant_id", "project_id"])
 
     for table_name, pk_name, uq_name in (
         ("strategies", "strategy_id", "uq_strategies_version"),
@@ -227,53 +252,22 @@ def upgrade() -> None:
                 sa.ForeignKey("projects.project_id", ondelete="CASCADE"),
                 nullable=False,
             ),
-            sa.Column("job_id", sa.String(length=64), nullable=False),
+            sa.Column(
+                "job_id",
+                sa.String(length=64),
+                sa.ForeignKey("jobs.job_id", ondelete="RESTRICT"),
+                nullable=False,
+            ),
             sa.Column("version", sa.Integer(), nullable=False),
-            sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-            *timestamps(),
+            sa.Column("payload", jsonb(), nullable=False),
+            created_at_column(),
             sa.UniqueConstraint("tenant_id", "project_id", "version", name=uq_name),
         )
-        op.create_index(f"ix_{table_name}_tenant_project", table_name, ["tenant_id", "project_id"])
-
-    op.create_table(
-        "jobs",
-        sa.Column("job_id", sa.String(length=64), primary_key=True),
-        tenant_id_column(),
-        sa.Column(
-            "project_id",
-            sa.String(length=64),
-            sa.ForeignKey("projects.project_id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column("kind", sa.String(length=32), nullable=False),
-        sa.Column("state", sa.String(length=32), nullable=False),
-        sa.Column("idempotency_key", sa.String(length=160), nullable=True),
-        sa.Column(
-            "payload",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
-        sa.Column("result_ref", sa.String(length=64), nullable=True),
-        sa.Column("error", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.CheckConstraint(f"kind IN ({JOB_KIND_VALUES})", name="job_kind_valid"),
-        sa.CheckConstraint(f"state IN ({JOB_STATE_VALUES})", name="job_state_valid"),
-        sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_jobs_tenant_idempotency"),
-    )
-    op.create_index("ix_jobs_tenant_state", "jobs", ["tenant_id", "state"])
-    op.create_index("ix_jobs_tenant_project", "jobs", ["tenant_id", "project_id"])
+        op.create_index(
+            f"ix_{table_name}_tenant_project",
+            table_name,
+            ["tenant_id", "project_id"],
+        )
 
     op.create_table(
         "job_attempts",
@@ -287,7 +281,7 @@ def upgrade() -> None:
         ),
         sa.Column("attempt_number", sa.Integer(), nullable=False),
         sa.Column("state", sa.String(length=32), nullable=False),
-        sa.Column("error", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("error", jsonb(), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(f"state IN ({JOB_STATE_VALUES})", name="job_attempt_state_valid"),
@@ -307,13 +301,8 @@ def upgrade() -> None:
         ),
         sa.Column("usage_type", sa.String(length=80), nullable=False),
         sa.Column("quantity", sa.Integer(), nullable=False),
-        sa.Column(
-            "metadata_json",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
-        *timestamps(),
+        jsonb_default_column("metadata_json"),
+        created_at_column(),
     )
     op.create_index("ix_usage_records_tenant_created", "usage_records", ["tenant_id", "created_at"])
 
@@ -335,19 +324,18 @@ def upgrade() -> None:
             sa.ForeignKey("user_identities.user_id", ondelete="SET NULL"),
             nullable=True,
         ),
-        sa.Column(
-            "payload",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
-        *timestamps(),
+        jsonb_default_column("payload"),
+        created_at_column(),
         sa.CheckConstraint(
             f"status IN ({APPROVAL_STATUS_VALUES})",
             name="approval_request_status_valid",
         ),
     )
-    op.create_index("ix_approval_requests_tenant_status", "approval_requests", ["tenant_id", "status"])
+    op.create_index(
+        "ix_approval_requests_tenant_status",
+        "approval_requests",
+        ["tenant_id", "status"],
+    )
 
     op.create_table(
         "approval_decisions",
@@ -367,7 +355,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("reason", sa.Text(), nullable=True),
-        *timestamps(),
+        created_at_column(),
         sa.CheckConstraint(
             f"decision IN ({APPROVAL_DECISION_VALUES})",
             name="approval_decision_valid",
@@ -393,13 +381,8 @@ def upgrade() -> None:
         sa.Column("resource_type", sa.String(length=120), nullable=False),
         sa.Column("resource_id", sa.String(length=120), nullable=False),
         sa.Column("request_id", sa.String(length=120), nullable=True),
-        sa.Column(
-            "safe_details",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default=sa.text("'{}'::jsonb"),
-        ),
-        *timestamps(),
+        jsonb_default_column("safe_details"),
+        created_at_column(),
     )
     op.create_index("ix_audit_events_tenant_created", "audit_events", ["tenant_id", "created_at"])
 
@@ -411,11 +394,11 @@ def downgrade() -> None:
         ("ix_approval_requests_tenant_status", "approval_requests"),
         ("ix_usage_records_tenant_created", "usage_records"),
         ("ix_job_attempts_tenant_job", "job_attempts"),
-        ("ix_jobs_tenant_project", "jobs"),
-        ("ix_jobs_tenant_state", "jobs"),
         ("ix_campaign_plans_tenant_project", "campaign_plans"),
         ("ix_creative_briefs_tenant_project", "creative_briefs"),
         ("ix_strategies_tenant_project", "strategies"),
+        ("ix_jobs_tenant_project", "jobs"),
+        ("ix_jobs_tenant_state", "jobs"),
         ("ix_campaign_goals_tenant_project", "campaign_goals"),
         ("ix_product_services_tenant_project", "product_services"),
         ("ix_business_profiles_tenant_project", "business_profiles"),
@@ -430,10 +413,10 @@ def downgrade() -> None:
         "approval_requests",
         "usage_records",
         "job_attempts",
-        "jobs",
         "campaign_plans",
         "creative_briefs",
         "strategies",
+        "jobs",
         "campaign_goals",
         "product_services",
         "business_profiles",
