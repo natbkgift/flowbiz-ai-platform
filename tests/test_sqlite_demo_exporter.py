@@ -28,6 +28,23 @@ def test_read_only_sqlite_exporter_collects_synthetic_inventory(tmp_path) -> Non
     ]
 
 
+def test_read_only_sqlite_exporter_escapes_quoted_table_names(tmp_path) -> None:
+    db_path = tmp_path / "quoted_demo.db"
+    table_name = 'demo"records'
+    with sqlite3.connect(db_path) as conn:
+        conn.execute('CREATE TABLE "demo""records" (id TEXT PRIMARY KEY)')
+        conn.execute('INSERT INTO "demo""records" (id) VALUES (\'R001\')')
+        conn.commit()
+
+    exporter = ReadOnlySQLiteInventoryExporter({"quoted_demo": db_path})
+
+    inventory = exporter.inspect()
+
+    assert [(table.table_name, table.row_count) for table in inventory[0].tables] == [
+        (table_name, 1)
+    ]
+
+
 def test_read_only_sqlite_exporter_rejects_missing_database(tmp_path) -> None:
     exporter = ReadOnlySQLiteInventoryExporter({"missing": tmp_path / "missing.db"})
 
