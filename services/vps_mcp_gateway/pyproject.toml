@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowbiz-vps-mcp-gateway"
+version = "0.1.0"
+description = "Bounded MCP operations gateway for FlowBiz VPS hosts"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "mcp==2.0.0",
+  "pydantic>=2.8,<3",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+  "ruff>=0.11,<1",
+]
+
+[project.scripts]
+flowbiz-vps-mcp = "flowbiz_vps_mcp.server:main"
+flowbiz-vps-mcp-admin = "flowbiz_vps_mcp.cli:main"
+flowbiz-vps-mcp-executor = "flowbiz_vps_mcp.executor_daemon:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["checks"]
+python_files = ["*_checks.py"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "checks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]

@@ -1,0 +1,66 @@
+version: 1
+
+gateway:
+  # Start with plan-only. Change to enabled only after the executor, root-owned
+  # action scripts, backups, rollback paths, and target commands are verified.
+  mutation_mode: plan-only
+  state_dir: /var/lib/flowbiz-vps-mcp
+  executor_socket: /run/flowbiz-vps-mcp/executor.sock
+  executor_state_dir: /var/lib/flowbiz-vps-mcp-executor
+  allowed_path_roots:
+    - /opt/flowbiz
+    - /srv/flowbiz
+  allowed_executables:
+    - /usr/bin/git
+    - /usr/bin/journalctl
+    - /usr/bin/systemctl
+    - /opt/flowbiz/bin/deploy-platform-release
+  allowed_health_hosts:
+    - 127.0.0.1
+    - localhost
+    - "::1"
+  read_timeout_seconds: 20
+  max_output_bytes: 65536
+  max_log_lines: 300
+  operation_ttl_seconds: 900
+  operator_code_ttl_seconds: 600
+  reason_min_length: 12
+
+targets:
+  platform:
+    title: FlowBiz AI Platform
+    description: Internal FlowBiz platform API on this VPS.
+    systemd_unit: flowbiz-ai-platform.service
+    project_path: /opt/flowbiz/platform/current
+    health_url: http://127.0.0.1:8100/healthz
+    # Journal access is disabled until OS permissions are explicitly reviewed.
+    allow_logs: false
+    actions:
+      restart:
+        title: Restart platform service
+        description: Restart the fixed systemd unit and leave deployment files unchanged.
+        argv:
+          - /usr/bin/systemctl
+          - restart
+          - flowbiz-ai-platform.service
+        timeout_seconds: 60
+        approval: host-confirmation
+        risk: moderate
+        enabled: false
+
+      deploy_release:
+        title: Deploy immutable platform release
+        description: Invoke the root-owned FlowBiz release script for one exact Git SHA.
+        argv:
+          - /opt/flowbiz/bin/deploy-platform-release
+          - "{release_ref}"
+        parameters:
+          release_ref:
+            description: Exact 40-character Git commit SHA to deploy.
+            pattern: "^[0-9a-f]{40}$"
+            min_length: 40
+            max_length: 40
+        timeout_seconds: 900
+        approval: operator-code
+        risk: high
+        enabled: false
