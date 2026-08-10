@@ -17,7 +17,7 @@ CANONICAL_COMMAND = "python scripts/ci/run_local_ci.py"
 
 
 def iso_utc_now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
 def run_cmd(cmd: list[str], cwd: Path) -> tuple[int, str]:
