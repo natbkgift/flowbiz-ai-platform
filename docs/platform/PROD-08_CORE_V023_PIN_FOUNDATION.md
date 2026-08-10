@@ -14,12 +14,12 @@ PROD-08 records the approved Platform release constraint for `flowbiz-ai-core` v
 
 ## 2. Core Pin Specification
 
-* **Core package:** `flowbiz-ai-core`
-* **Core version constraint:** `0.2.3`
-* **Core verified commit:** `9576229ce600caab54b9d4590dee3f86fc9145f0`
-* **Private Core install in Platform CI:** `DEFERRED`
-* **Package registry publication:** `NOT_PERFORMED`
-* **Posture:** `constraints-only`
+* Core package: `flowbiz-ai-core`
+* Core version constraint: `0.2.3`
+* Core verified commit: `9576229ce600caab54b9d4590dee3f86fc9145f0`
+* Private Core install in Platform CI: `DEFERRED`
+* Package registry publication: `NOT_PERFORMED`
+* Posture: `constraints-only`
 
 ---
 
