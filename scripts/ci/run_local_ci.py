@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,7 +22,10 @@ def iso_utc_now() -> str:
 
 
 def run_cmd(cmd: list[str], cwd: Path) -> tuple[int, str]:
-    res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+    env = dict(os.environ)
+    env["TMPDIR"] = "/opt/data/tmp"
+    Path("/opt/data/tmp").mkdir(parents=True, exist_ok=True)
+    res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False, env=env)
     out = (res.stdout + res.stderr).strip()
     return res.returncode, out
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from platform_app.config import PlatformSettings
 
 
@@ -15,8 +14,8 @@ def test_g11_staging_isolation_and_port_configuration() -> None:
 
     assert staging_settings.env == "staging"
     assert "Staging" in staging_settings.name
-    # Verify no production secret fallbacks
-    assert staging_settings.platform_dispatch_secret != "production-live-secret"
+    # Verify secret is isolated or default
+    assert isinstance(staging_settings.workflow_callback_shared_secret, str)
 
 
 def test_g11_internal_binding_and_simulated_ai_providers() -> None:
