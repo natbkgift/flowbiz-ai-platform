@@ -1,8 +1,8 @@
 # PROD-08: Core v0.2.3 Exact Pin Foundation
 
-**Timestamp:** 2026-08-10T21:15:00Z  
-**Phase:** G03 — PLATFORM CONSUMER PROOF / R3  
-**Target Repository:** `natbkgift/flowbiz-ai-platform`  
+**Timestamp:** 2026-08-10T21:15:00Z
+**Phase:** G03 — PLATFORM CONSUMER PROOF / R3
+**Target Repository:** `natbkgift/flowbiz-ai-platform`
 
 ---
 
