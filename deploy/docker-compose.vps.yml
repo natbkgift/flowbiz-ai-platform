@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     networks:
       - flowbiz-platform-core-control
+      - flowbiz-platform-edge
     ports:
       - "127.0.0.1:18100:8100"
     environment:
@@ -79,3 +80,6 @@ networks:
   flowbiz-platform-core-control:
     external: true
     name: flowbiz-platform-core-control
+  flowbiz-platform-edge:
+    name: flowbiz-platform-edge
+    driver: bridge
