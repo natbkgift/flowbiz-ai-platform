@@ -5,8 +5,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from starlette.middleware.cors import CORSMiddleware
-
 from platform_app.config import get_settings
 from platform_app.deps import get_secret_provider_bundle
 from platform_app.middleware import RequestContextMiddleware
@@ -17,9 +15,11 @@ from platform_app.observability import (
 from platform_app.routes.approval_gate import router as approval_gate_router
 from platform_app.routes.operator import router as operator_router
 from platform_app.routes.platform import router as platform_router
+from platform_app.routes.runner_authority import router as runner_authority_router
 from platform_app.routes.system import router as system_router
 from platform_app.routes.workflow_events import router as workflow_events_router
 from platform_app.runtime import validate_runtime_configuration
+from starlette.middleware.cors import CORSMiddleware
 
 
 @asynccontextmanager
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
         )
     app.include_router(system_router)
     app.include_router(platform_router)
+    app.include_router(runner_authority_router)
     app.include_router(workflow_events_router)
     app.include_router(approval_gate_router)
     if settings.operator_ui_enabled:

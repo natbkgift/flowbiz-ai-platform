@@ -12,12 +12,16 @@ Platform service layer for FlowBiz AI products. This repository implements produ
 
 ## Status
 
-Platform bootstrap with a local self-run baseline. The default local path uses the stub LLM provider and does not require a sibling repo or extra services.
+The public bootstrap routes remain available for local development. The production
+runner lane uses PostgreSQL as authority and the published `flowbiz-ai-core` v0.2.3
+contract package.
 
 ## Prerequisites
 
 - Docker Desktop or Docker Engine with Compose support for the one-command path
 - Python 3.11 if you want to run the app directly on the host
+- The verified `flowbiz_ai_core-0.2.3-py3-none-any.whl` artifact. Its required
+  SHA-256 is documented in `docs/platform/PROD-08_CORE_V023_PIN_FOUNDATION.md`.
 
 ## Quick Start
 
@@ -27,7 +31,10 @@ Platform bootstrap with a local self-run baseline. The default local path uses t
 copy .env.example .env
 ```
 
-2. Start the local stack:
+2. Place the verified Core wheel at
+   `.artifacts/flowbiz_ai_core-0.2.3-py3-none-any.whl` (the directory is ignored by Git).
+
+3. Start the local stack:
 
 ```powershell
 docker compose up --build
@@ -69,6 +76,7 @@ If you want to run without Docker:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .[dev]
+pip install .artifacts\flowbiz_ai_core-0.2.3-py3-none-any.whl
 copy .env.example .env
 uvicorn apps.platform_api.main:app --host 0.0.0.0 --port 8100 --reload
 ```
@@ -77,20 +85,25 @@ uvicorn apps.platform_api.main:app --host 0.0.0.0 --port 8100 --reload
 
 - The default local path uses `PLATFORM_LLM_PROVIDER=stub`.
 - `PLATFORM_AUTH_MODE=disabled` is intended only for local bootstrap and smoke testing.
-- Dispatch and callback routes are present, but the default local env leaves runner dispatch disabled until you explicitly set `PLATFORM_WORKFLOW_RUNNER_DISPATCH_URL` and `PLATFORM_WORKFLOW_CALLBACK_SHARED_SECRET`.
-- If you are developing cross-repo integrations, you can still install `flowbiz-ai-core` manually from a local path, but it is not required for local platform boot.
+- The PostgreSQL runner lane is disabled in the default local env. Production enables
+  it with `PLATFORM_RUNNER_ENABLED=true` plus file-backed transport secrets.
+- The legacy SQLite workflow endpoints remain for local compatibility; they are not
+  the production authority for Core v1 runner jobs.
 
-## CI Baseline
+## Local CI Baseline
 
-GitHub Actions runs the repo-local regression gate on pushes to `main` and on pull requests:
+This release lane is verified manually and does not require GitHub Actions:
 
-- `ruff check .`
-- `pytest -q`
-- a smoke command that imports `apps.platform_api.main`, creates the FastAPI app, and verifies workflow routes are registered
+- install the verified Core v0.2.3 wheel into an isolated environment
+- run `pytest -q`
+- run PostgreSQL migration upgrade/downgrade/upgrade and integration tests
+- build both immutable Docker images and run the real Platform→Hermes→callback recovery drill
 
 ## Production Ops
 
-The current internal production auth lane and VPS bootstrap procedure are documented in
+The VPS manifest is `deploy/docker-compose.vps.yml`. It consumes only file-backed
+secrets under `/opt/flowbiz/secrets/platform`, runs Alembic before startup, and binds
+the public upstream to loopback port 18100. The internal production auth lane is documented in
 [docs/platform/PLATFORM_PRODUCTION_AUTH_LANE.md](/d:/FlowBiz/flowbiz-ai-platform/docs/platform/PLATFORM_PRODUCTION_AUTH_LANE.md).
 
 The current internal hardening gate, deployment checklist, secret permission

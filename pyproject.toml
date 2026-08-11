@@ -22,8 +22,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+core-runtime = [
+  "flowbiz-ai-core==0.2.3",
+]
 dev = [
   "httpx",
+  "httpx2",
   "pytest",
   "ruff",
 ]
