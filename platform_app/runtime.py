@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from urllib.parse import urlparse
 
 from platform_app.config import PlatformSettings
@@ -31,6 +32,15 @@ def validate_runtime_configuration(
             errors.append("FastAPI docs must be disabled in production")
         if settings.auth_mode != "api_key":
             errors.append("PLATFORM_AUTH_MODE=api_key is required in production")
+        else:
+            try:
+                api_key_records = json.loads(settings.auth_api_keys_json_value or "[]")
+            except json.JSONDecodeError:
+                api_key_records = None
+            if not isinstance(api_key_records, list):
+                errors.append("production API key records must be a JSON array")
+            elif not api_key_records and not settings.required_api_keys.strip():
+                errors.append("at least one production API key record is required")
         if settings.rate_limit_mode != "redis":
             errors.append("PLATFORM_RATE_LIMIT_MODE=redis is required in production")
         if "*" in cors_origins:
@@ -80,6 +90,34 @@ def validate_runtime_configuration(
                     "PLATFORM_CORE_BASE_URL host must be an approved internal host "
                     "in production"
                 )
+
+    if settings.runner_enabled:
+        if not settings.database_url_value:
+            errors.append("PLATFORM_DATABASE_URL or PLATFORM_DATABASE_URL_FILE is required")
+        if not settings.runner_dispatch_url.strip():
+            errors.append("PLATFORM_RUNNER_DISPATCH_URL is required")
+        else:
+            runner_url = urlparse(settings.runner_dispatch_url)
+            if runner_url.scheme not in {"http", "https"} or not runner_url.hostname:
+                errors.append("PLATFORM_RUNNER_DISPATCH_URL must be an http(s) URL")
+            if settings.is_production and runner_url.hostname in {
+                "localhost",
+                "127.0.0.1",
+                "0.0.0.0",
+                "::1",
+            }:
+                errors.append("production runner dispatch must use an internal service host")
+        internal_base = urlparse(settings.platform_internal_base_url)
+        if internal_base.scheme not in {"http", "https"} or not internal_base.hostname:
+            errors.append("PLATFORM_PLATFORM_INTERNAL_BASE_URL must be an http(s) URL")
+        if not settings.runner_dispatch_token_value:
+            errors.append("runner dispatch token is required")
+        if not settings.runner_callback_secret_value:
+            errors.append("runner callback secret is required")
+        if not settings.job_admin_token_value:
+            errors.append("runner job administration token is required")
+        if not 30 <= settings.runner_callback_max_clock_skew_seconds <= 600:
+            errors.append("runner callback clock skew must be between 30 and 600 seconds")
 
     if errors:
         raise RuntimeConfigurationError(

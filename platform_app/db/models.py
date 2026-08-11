@@ -33,7 +33,11 @@ EMPTY_JSONB = text("'{}'::jsonb")
 
 ROLE_VALUES = "'owner','admin','marketer','viewer','service_identity'"
 JOB_STATE_VALUES = "'queued','running','succeeded','failed','dead_letter','cancelled'"
-JOB_KIND_VALUES = "'strategy','creative_brief','campaign_plan'"
+JOB_KIND_VALUES = "'strategy','creative_brief','campaign_plan','runner_task'"
+RUNNER_DISPATCH_STATUS_VALUES = (
+    "'pending','accepted','rejected','dispatch_failed','callback_received'"
+)
+RUNNER_CALLBACK_STATUS_VALUES = "'succeeded','failed','cancelled'"
 APPROVAL_STATUS_VALUES = "'pending','approved','rejected','cancelled'"
 APPROVAL_DECISION_VALUES = "'approve','reject'"
 
@@ -401,6 +405,98 @@ class JobAttempt(Base):
         CheckConstraint(f"state IN ({JOB_STATE_VALUES})", name="job_attempt_state_valid"),
         UniqueConstraint("job_id", "attempt_number", name="uq_job_attempts_job_attempt"),
         Index("ix_job_attempts_tenant_job", "tenant_id", "job_id"),
+    )
+
+
+class RunnerDispatch(Base):
+    __tablename__ = "runner_dispatches"
+
+    dispatch_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.tenant_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs.job_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    runner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    workflow_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    contract_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    inputs: Mapped[JsonDict] = mapped_column(JSONB, nullable=False)
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    callback_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    response_code: Mapped[int | None] = mapped_column(Integer)
+    safe_error: Mapped[JsonDict | None] = mapped_column(JSONB)
+    dispatched_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(Timestamp)
+    created_at: Mapped[datetime] = mapped_column(
+        Timestamp,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({RUNNER_DISPATCH_STATUS_VALUES})",
+            name="runner_dispatch_status_valid",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_runner_dispatches_tenant_idempotency",
+        ),
+        Index("ix_runner_dispatches_tenant_job", "tenant_id", "job_id"),
+        Index("ix_runner_dispatches_tenant_status", "tenant_id", "status"),
+    )
+
+
+class RunnerCallback(Base):
+    __tablename__ = "runner_callbacks"
+
+    callback_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.tenant_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    dispatch_id: Mapped[str] = mapped_column(
+        ForeignKey("runner_dispatches.dispatch_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs.job_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    runner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    result: Mapped[JsonDict | None] = mapped_column(JSONB)
+    error: Mapped[JsonDict | None] = mapped_column(JSONB)
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(Timestamp, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        Timestamp,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({RUNNER_CALLBACK_STATUS_VALUES})",
+            name="runner_callback_status_valid",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_runner_callbacks_tenant_idempotency",
+        ),
+        Index("ix_runner_callbacks_tenant_job", "tenant_id", "job_id"),
+        Index("ix_runner_callbacks_dispatch", "dispatch_id"),
     )
 
 

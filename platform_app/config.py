@@ -9,6 +9,13 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _read_secret_file(path: str) -> str:
+    if not path.strip():
+        return ""
+    with open(path, encoding="utf-8") as handle:
+        return handle.read().strip()
+
+
 class PlatformSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -40,6 +47,7 @@ class PlatformSettings(BaseSettings):
     auth_sqlite_path: str = Field(default="platform_data/platform_auth.db")
     required_api_keys: str = Field(default="")
     auth_api_keys_json: str = Field(default="[]")
+    auth_api_keys_json_file: str = Field(default="")
 
     supabase_jwt_issuer: str = Field(default="")
     supabase_jwt_audience: str = Field(default="")
@@ -57,6 +65,20 @@ class PlatformSettings(BaseSettings):
     platform_public_base_url: str = Field(default="http://localhost:8100")
 
     database_url: SecretStr | None = Field(default=None)
+    database_url_file: str = Field(default="")
+
+    runner_enabled: bool = Field(default=False)
+    runner_dispatch_url: str = Field(default="")
+    runner_id: str = Field(default="hermes-readonly-1")
+    runner_dispatch_timeout_seconds: float = Field(default=5.0)
+    runner_dispatch_token: SecretStr | None = Field(default=None)
+    runner_dispatch_token_file: str = Field(default="")
+    runner_callback_secret: SecretStr | None = Field(default=None)
+    runner_callback_secret_file: str = Field(default="")
+    runner_callback_max_clock_skew_seconds: int = Field(default=300)
+    job_admin_token: SecretStr | None = Field(default=None)
+    job_admin_token_file: str = Field(default="")
+    platform_internal_base_url: str = Field(default="http://platform:8100")
 
     core_base_url: str = Field(default="")
     core_service_token: SecretStr | None = Field(default=None)
@@ -98,8 +120,38 @@ class PlatformSettings(BaseSettings):
     @property
     def database_url_value(self) -> str:
         if self.database_url is None:
-            return ""
+            return _read_secret_file(self.database_url_file)
         return self.database_url.get_secret_value()
+
+    @staticmethod
+    def _secret_value(value: SecretStr | None, file_path: str) -> str:
+        if value is not None:
+            return value.get_secret_value()
+        return _read_secret_file(file_path)
+
+    @property
+    def runner_dispatch_token_value(self) -> str:
+        return self._secret_value(
+            self.runner_dispatch_token,
+            self.runner_dispatch_token_file,
+        )
+
+    @property
+    def runner_callback_secret_value(self) -> str:
+        return self._secret_value(
+            self.runner_callback_secret,
+            self.runner_callback_secret_file,
+        )
+
+    @property
+    def job_admin_token_value(self) -> str:
+        return self._secret_value(self.job_admin_token, self.job_admin_token_file)
+
+    @property
+    def auth_api_keys_json_value(self) -> str:
+        if self.auth_api_keys_json_file.strip():
+            return _read_secret_file(self.auth_api_keys_json_file)
+        return self.auth_api_keys_json
 
     @property
     def is_production(self) -> bool:

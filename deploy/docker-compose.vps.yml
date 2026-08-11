@@ -1,0 +1,81 @@
+services:
+  platform:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: "flowbiz-ai-platform:${PLATFORM_RELEASE_SHA:?missing PLATFORM_RELEASE_SHA}"
+    container_name: flowbiz-ai-platform
+    restart: unless-stopped
+    networks:
+      - flowbiz-platform-core-control
+    ports:
+      - "127.0.0.1:18100:8100"
+    environment:
+      PLATFORM_ENV: production
+      PLATFORM_VERSION: "${PLATFORM_RELEASE_SHA}"
+      PLATFORM_DOCS_ENABLED: "false"
+      PLATFORM_AUTH_MODE: api_key
+      PLATFORM_AUTH_STORE_MODE: json
+      PLATFORM_AUTH_API_KEYS_JSON_FILE: /run/secrets/platform_api_keys_json
+      PLATFORM_DATABASE_URL_FILE: /run/secrets/database_url
+      PLATFORM_RUNNER_ENABLED: "true"
+      PLATFORM_RUNNER_DISPATCH_URL: http://flowbiz-hermes-agent:9119/v1/runner/dispatch
+      PLATFORM_RUNNER_ID: hermes-readonly-1
+      PLATFORM_RUNNER_DISPATCH_TOKEN_FILE: /run/secrets/runner_dispatch_token
+      PLATFORM_RUNNER_CALLBACK_SECRET_FILE: /run/secrets/runner_callback_secret
+      PLATFORM_JOB_ADMIN_TOKEN_FILE: /run/secrets/job_admin_token
+      PLATFORM_PLATFORM_INTERNAL_BASE_URL: http://flowbiz-ai-platform:8100
+      PLATFORM_RATE_LIMIT_MODE: redis
+      PLATFORM_RATE_LIMIT_REDIS_URL: redis://flowbiz-redis:6379/2
+      PLATFORM_CORS_ALLOWED_ORIGINS: https://flowbiz.cloud
+      PLATFORM_CORS_ALLOW_CREDENTIALS: "false"
+      PLATFORM_LLM_PROVIDER: stub
+      PLATFORM_METRICS_MODE: log
+    volumes:
+      - type: bind
+        source: /opt/flowbiz/secrets/platform/database_url
+        target: /run/secrets/database_url
+        read_only: true
+      - type: bind
+        source: /opt/flowbiz/secrets/platform/runner_dispatch_token
+        target: /run/secrets/runner_dispatch_token
+        read_only: true
+      - type: bind
+        source: /opt/flowbiz/secrets/platform/runner_callback_secret
+        target: /run/secrets/runner_callback_secret
+        read_only: true
+      - type: bind
+        source: /opt/flowbiz/secrets/platform/job_admin_token
+        target: /run/secrets/job_admin_token
+        read_only: true
+      - type: bind
+        source: /opt/flowbiz/secrets/platform/platform_api_keys_json
+        target: /run/secrets/platform_api_keys_json
+        read_only: true
+    user: "4311:4311"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 768m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/readyz', timeout=3).read()"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  flowbiz-platform-core-control:
+    external: true
+    name: flowbiz-platform-core-control

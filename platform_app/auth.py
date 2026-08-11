@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from hmac import compare_digest
-from hashlib import sha256
 import json
+from dataclasses import dataclass
+from hashlib import sha256
+from hmac import compare_digest
 
 from fastapi import Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -87,7 +87,7 @@ def _parse_api_key_records_json(raw: str) -> dict[str, APIKeyRecord]:
 
 
 def load_api_key_records(settings: PlatformSettings) -> dict[str, APIKeyRecord]:
-    records = _parse_api_key_records_json(settings.auth_api_keys_json)
+    records = _parse_api_key_records_json(settings.auth_api_keys_json_value)
     if records:
         return records
     return _parse_required_keys(settings.required_api_keys)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import lru_cache
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -39,6 +40,21 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     """Create a typed SQLAlchemy session factory."""
 
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+
+
+@lru_cache
+def get_session_factory() -> sessionmaker[Session]:
+    """Return the process-wide production session factory."""
+
+    return create_session_factory(create_platform_engine())
+
+
+def get_database_session() -> Iterator[Session]:
+    """FastAPI dependency that commits successful requests and rolls back failures."""
+
+    factory = get_session_factory()
+    with session_scope(factory) as session:
+        yield session
 
 
 @contextmanager
