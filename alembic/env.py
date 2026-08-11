@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
-
-from platform_app.db.base import Base
 from platform_app.db import models  # noqa: F401
+from platform_app.db.base import Base
+from platform_app.db.session import get_migration_database_url
+from sqlalchemy import engine_from_config, pool
 
 config = context.config
 
@@ -20,13 +19,7 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    database_url = os.environ.get("PLATFORM_DATABASE_URL") or os.environ.get(
-        "TEST_DATABASE_URL",
-        "",
-    )
-    if not database_url.strip():
-        raise RuntimeError("PLATFORM_DATABASE_URL or TEST_DATABASE_URL is required")
-    return database_url
+    return get_migration_database_url()
 
 
 def run_migrations_offline() -> None:

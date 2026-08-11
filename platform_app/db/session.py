@@ -6,6 +6,7 @@ not wire PostgreSQL into FastAPI routes or replace existing SQLite stores.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
@@ -27,6 +28,25 @@ def get_database_url(settings: PlatformSettings | None = None) -> str:
     database_url = current.database_url_value.strip()
     if not database_url:
         raise DatabaseUrlNotConfigured("PLATFORM_DATABASE_URL is not configured")
+    return database_url
+
+
+def get_migration_database_url(settings: PlatformSettings | None = None) -> str:
+    """Resolve the migration URL from the same file-backed source as the app.
+
+    ``TEST_DATABASE_URL`` remains an explicit test-only fallback for the local
+    PostgreSQL integration lane.
+    """
+
+    current = settings or PlatformSettings()
+    database_url = current.database_url_value.strip()
+    if not database_url:
+        database_url = os.environ.get("TEST_DATABASE_URL", "").strip()
+    if not database_url:
+        raise DatabaseUrlNotConfigured(
+            "PLATFORM_DATABASE_URL, PLATFORM_DATABASE_URL_FILE, or "
+            "TEST_DATABASE_URL is required"
+        )
     return database_url
 
 
