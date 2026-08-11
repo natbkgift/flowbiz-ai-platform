@@ -19,6 +19,7 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir /tmp/flowbiz_ai_core-0.2.3-py3-none-any.whl \
     && python -m pip install --no-cache-dir . \
     && rm -f /tmp/flowbiz_ai_core-0.2.3-py3-none-any.whl \
+    && sed -i 's/\r$//' /usr/local/bin/flowbiz-platform-start \
     && chmod 0555 /usr/local/bin/flowbiz-platform-start \
     && groupadd --system --gid 4311 flowbiz-platform \
     && useradd --system --uid 4311 --gid 4311 --home-dir /nonexistent \
