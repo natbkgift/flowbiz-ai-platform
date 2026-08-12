@@ -33,3 +33,14 @@ def test_vps_compose_separates_internal_control_and_loopback_edge_networks() -> 
         "name": "flowbiz-platform-edge",
         "driver": "bridge",
     }
+
+
+def test_vps_compose_uses_healthz_for_container_liveness() -> None:
+    compose_path = PROJECT_ROOT / "deploy" / "docker-compose.vps.yml"
+    compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    healthcheck = compose["services"]["platform"]["healthcheck"]
+    command = healthcheck["test"]
+
+    assert command[:3] == ["CMD", "python", "-c"]
+    assert "http://127.0.0.1:8100/healthz" in command[3]
+    assert "/readyz" not in command[3]
