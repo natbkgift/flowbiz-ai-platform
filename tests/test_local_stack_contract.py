@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def _parse_env_example() -> dict[str, str]:
     values: dict[str, str] = {}
-    for raw_line in (PROJECT_ROOT / ".env.local.example").read_text(
+    for raw_line in (PROJECT_ROOT / "env.local.example").read_text(
         encoding="utf-8"
     ).splitlines():
         line = raw_line.strip()
@@ -35,7 +35,7 @@ def test_local_compose_isolated_from_vps_and_hermes() -> None:
 
 def test_local_environment_is_stub_only_and_contains_no_provider_secret() -> None:
     env = _parse_env_example()
-    raw = (PROJECT_ROOT / ".env.local.example").read_text(encoding="utf-8")
+    raw = (PROJECT_ROOT / "env.local.example").read_text(encoding="utf-8")
 
     assert env["PLATFORM_ENV"] == "development"
     assert env["PLATFORM_AUTH_MODE"] == "disabled"

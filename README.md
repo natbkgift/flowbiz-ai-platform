@@ -29,7 +29,7 @@ contract package.
    legacy `.env` file and never needs production credentials:
 
 ```powershell
-Copy-Item .env.local.example .env.local
+Copy-Item env.local.example .env.local
 ```
 
 2. Place the verified Core wheel at
