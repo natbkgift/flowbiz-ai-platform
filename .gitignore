@@ -5,6 +5,7 @@ __pycache__/
 .claude/
 *.pyc
 .env
+.env.local
 *.log
 proposal_*.json
 platform_data/

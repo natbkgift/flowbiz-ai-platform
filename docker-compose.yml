@@ -1,11 +1,37 @@
+name: flowbiz-platform-local
+
 services:
+  postgres:
+    image: postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
+    environment:
+      POSTGRES_DB: flowbiz_platform_local
+      POSTGRES_USER: flowbiz_local
+      POSTGRES_PASSWORD: flowbiz_local_only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowbiz_local -d flowbiz_platform_local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
   platform:
     build:
       context: .
     env_file:
-      - .env
+      - .env.local
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
-      - "8100:8100"
+      - "127.0.0.1:8100:8100"
     volumes:
-      - ./platform_data:/app/platform_data
+      - local_platform_data:/app/platform_data
     restart: unless-stopped
+
+volumes:
+  local_platform_data:
+  local_postgres_data:
