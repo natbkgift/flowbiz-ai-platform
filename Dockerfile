@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:a630a63cdb314e2d138a2fca3e375e319e8568346ffafac5b980f888630ac4f1
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -15,7 +15,9 @@ COPY alembic.ini ./alembic.ini
 COPY deploy/start.sh /usr/local/bin/flowbiz-platform-start
 # platform_app/static/operator/* is internal-only AI Operator Console assets.
 
-RUN python -m pip install --upgrade pip \
+RUN python -m pip install --no-cache-dir \
+        pip==26.2.1 \
+        setuptools==83.0.0 \
     && python -m pip install --no-cache-dir /tmp/flowbiz_ai_core-0.2.3-py3-none-any.whl \
     && python -m pip install --no-cache-dir . \
     && rm -f /tmp/flowbiz_ai_core-0.2.3-py3-none-any.whl \
