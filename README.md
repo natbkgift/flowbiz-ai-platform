@@ -25,10 +25,11 @@ contract package.
 
 ## Quick Start
 
-1. Copy the example environment:
+1. Copy the local-only example environment. The Compose stack does not read the
+   legacy `.env` file and never needs production credentials:
 
 ```powershell
-copy .env.example .env
+Copy-Item .env.local.example .env.local
 ```
 
 2. Place the verified Core wheel at
@@ -40,7 +41,11 @@ copy .env.example .env
 docker compose up --build
 ```
 
-The platform listens on `http://localhost:8100`.
+Compose starts a disposable PostgreSQL 16 service, applies Alembic migrations,
+and binds the Platform only to `http://127.0.0.1:8100`. The local configuration
+uses the stub LLM provider, disables authentication for smoke tests, and keeps
+the Hermes runner disabled. PostgreSQL is available to local integration tests
+only at `127.0.0.1:15432`.
 
 ## Smoke Verification
 
@@ -68,6 +73,10 @@ Expected results:
 docker compose down
 ```
 
+Use `docker compose down -v` only when you intentionally want to remove the
+disposable local PostgreSQL and Platform data volumes. This command never
+targets VPS resources.
+
 ## Native Host Run
 
 If you want to run without Docker:
@@ -89,6 +98,26 @@ uvicorn apps.platform_api.main:app --host 0.0.0.0 --port 8100 --reload
   it with `PLATFORM_RUNNER_ENABLED=true` plus file-backed transport secrets.
 - The legacy SQLite workflow endpoints remain for local compatibility; they are not
   the production authority for Core v1 runner jobs.
+- `.env.local` is ignored by Git. Do not paste VPS, SMTP, Gemini, GitHub, or
+  production database credentials into it.
+- The local Compose project is named `flowbiz-platform-local`; it does not join
+  production networks and does not start a Hermes service.
+
+## Local PostgreSQL Backup/Restore Drill
+
+After the stack is healthy, create a custom-format backup inside the local
+PostgreSQL container and restore it to an isolated local database:
+
+```powershell
+docker compose exec -T postgres pg_dump -U flowbiz_local -d flowbiz_platform_local -Fc -f /tmp/platform-local.dump
+docker compose exec -T postgres createdb -U flowbiz_local flowbiz_platform_restore
+docker compose exec -T postgres pg_restore -U flowbiz_local -d flowbiz_platform_restore --exit-on-error --single-transaction /tmp/platform-local.dump
+docker compose exec -T postgres psql -U flowbiz_local -d flowbiz_platform_restore -Atc "SELECT version_num FROM alembic_version;"
+docker compose exec -T postgres dropdb -U flowbiz_local flowbiz_platform_restore
+```
+
+These commands use only disposable local data. Production backup and restore
+remain governed by the VPS release runbook.
 
 ## Local CI Baseline
 
