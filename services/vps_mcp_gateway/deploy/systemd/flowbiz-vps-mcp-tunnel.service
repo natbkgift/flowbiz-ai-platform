@@ -1,0 +1,40 @@
+[Unit]
+Description=OpenAI Secure MCP Tunnel for FlowBiz VPS operations
+After=network-online.target flowbiz-vps-mcp-executor.service
+Wants=network-online.target
+Requires=flowbiz-vps-mcp-executor.service
+
+[Service]
+Type=simple
+User=flowbiz-mcp
+Group=flowbiz-mcp
+Environment=HOME=/var/lib/flowbiz-vps-mcp
+Environment=FLOWBIZ_VPS_MCP_CONFIG=/etc/flowbiz-vps-mcp/config.yaml
+EnvironmentFile=/etc/flowbiz-vps-mcp/tunnel.env
+ExecStart=/usr/local/bin/tunnel-client run --profile flowbiz-vps
+Restart=always
+RestartSec=5
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/flowbiz-vps-mcp
+ReadOnlyPaths=/etc/flowbiz-vps-mcp /opt/flowbiz
+
+[Install]
+WantedBy=multi-user.target

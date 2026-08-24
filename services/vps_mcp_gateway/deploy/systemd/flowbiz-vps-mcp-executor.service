@@ -1,0 +1,40 @@
+[Unit]
+Description=FlowBiz VPS MCP privileged action executor
+After=local-fs.target
+Before=flowbiz-vps-mcp-tunnel.service
+
+[Service]
+Type=simple
+User=root
+Group=flowbiz-mcp
+Environment=FLOWBIZ_VPS_MCP_CONFIG=/etc/flowbiz-vps-mcp/config.yaml
+ExecStart=/opt/flowbiz/vps-mcp/.venv/bin/flowbiz-vps-mcp-executor
+Restart=on-failure
+RestartSec=3
+UMask=0077
+RuntimeDirectory=flowbiz-vps-mcp
+RuntimeDirectoryMode=0750
+
+# The executor is root because it is the only process permitted to run fixed
+# mutation commands. The MCP/tunnel process remains unprivileged.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+ReadWritePaths=/run/flowbiz-vps-mcp /var/lib/flowbiz-vps-mcp-executor /opt/flowbiz
+ReadOnlyPaths=/etc/flowbiz-vps-mcp
+
+[Install]
+WantedBy=multi-user.target
